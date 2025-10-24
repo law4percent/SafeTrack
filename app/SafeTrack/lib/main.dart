@@ -3,9 +3,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart'; // ADD THIS
 import 'package:provider/provider.dart';
-import 'auth_service.dart';
-import 'login_screen.dart';
-import 'dashboard_screen.dart';
+import 'services/auth_service.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/dashboard_screen.dart';
 
 
 void main() async {

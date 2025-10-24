@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'auth_service.dart';
+import '../../services/auth_service.dart';
 import 'signup_screen.dart';
-import 'dashboard_screen.dart';
+import '../dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -228,27 +228,7 @@ class LoginScreenState extends State<LoginScreen> {
         
         // Forgot Password
         TextButton(
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text('Reset Password'),
-                content: Text('Enter your email to reset password'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text('Cancel'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: Text('Send'),
-                  ),
-                ],
-              ),
-            );
-          },
+          onPressed: () => _showPasswordResetDialog(),
           child: Text(
             'Forgot Password?',
             style: TextStyle(fontSize: _getSmallTextSize(screenSize.width)),
@@ -395,6 +375,105 @@ class LoginScreenState extends State<LoginScreen> {
     if (screenWidth < 350) return 16;
     if (screenWidth < 600) return 18;
     return 20;
+  }
+
+  // Password Reset Dialog
+  void _showPasswordResetDialog() {
+    final resetEmailController = TextEditingController();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Reset Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Enter your email address to receive a password reset link.'),
+              SizedBox(height: 16),
+              TextField(
+                controller: resetEmailController,
+                decoration: InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email),
+                ),
+                keyboardType: TextInputType.emailAddress,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.pop(dialogContext),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                final email = resetEmailController.text.trim();
+                
+                if (email.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Please enter your email'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
+                if (!email.contains('@')) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Please enter a valid email'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
+                setState(() => isLoading = true);
+
+                try {
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  await authService.resetPassword(email);
+                  
+                  Navigator.pop(dialogContext);
+                  
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ Password reset link sent to $email'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  setState(() => isLoading = false);
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to send reset link: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: isLoading
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text('Send Reset Link'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override

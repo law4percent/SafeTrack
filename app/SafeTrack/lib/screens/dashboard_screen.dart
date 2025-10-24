@@ -4,8 +4,11 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
-import '../auth_service.dart';
-import '../widgets/quick_actions_grid.dart'; 
+import '../services/auth_service.dart';
+import '../widgets/quick_actions_grid.dart';
+import 'live_tracking_screen.dart';
+import 'my_children_screen.dart';
+import 'settings_screen.dart';
 
 // ======================================================
 // 🚨 RTDB REGION FIX: Gamitin ang parehong RTDB instance
@@ -18,7 +21,102 @@ final FirebaseDatabase rtdbInstance = FirebaseDatabase.instanceFor(
 );
 // ======================================================
 
-// --- MAIN DASHBOARD WIDGET ---
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
+  
+  @override
+  DashboardScreenState createState() => DashboardScreenState();
+}
+
+class DashboardScreenState extends State<DashboardScreen> {
+  int _currentIndex = 0;
+
+  late final List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      const DashboardHome(),
+      const LiveTrackingScreen(),
+      const MyChildrenScreen(),
+      const SettingsScreen(),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Image.asset(
+              'assets/images/my_app_logo.png',
+              height: MediaQuery.of(context).size.width * 0.20,
+              width: MediaQuery.of(context).size.width * 0.20,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(
+                  Icons.school, 
+                  color: Colors.white, 
+                  size: MediaQuery.of(context).size.width * 0.10
+                );
+              },
+            ),
+            SizedBox(width: MediaQuery.of(context).size.width * 0.02),
+            Text(
+              'SafeTrack - Student Safety',
+              style: TextStyle(
+                fontSize: MediaQuery.of(context).size.width * 0.038, 
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        centerTitle: false,
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        elevation: 4,
+      ),
+      body: _screens[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          if (index < _screens.length) {
+            setState(() => _currentIndex = index);
+          }
+        },
+        type: BottomNavigationBarType.fixed, 
+        selectedItemColor: Colors.blue[700],
+        unselectedItemColor: Colors.grey,
+        backgroundColor: Colors.white,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.location_on),
+            label: 'Live Tracking',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.child_care),
+            label: 'My Children',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- MAIN DASHBOARD HOME WIDGET ---
 class DashboardHome extends StatelessWidget {
   const DashboardHome({super.key});
 
@@ -73,7 +171,7 @@ class DashboardContent extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section: Monitoring Status - FIXED LOGIC
+            // Header Section: Monitoring Status
             _buildMonitoringStatus(isTablet, isDesktop),
             
             SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
@@ -116,7 +214,6 @@ class DashboardContent extends StatelessWidget {
 
         final childrenStatus = snapshot.data ?? [];
         
-        // 🔥 FIXED LOGIC: Proper safety status checking
         final bool hasEmergency = childrenStatus.any((child) => child['sosActive'] == true);
         final bool allChildrenOnline = childrenStatus.isNotEmpty && 
             childrenStatus.every((child) => child['isOnline'] == true);
@@ -377,7 +474,7 @@ class DashboardContent extends StatelessWidget {
 }
 
 // ---------------------------------------------
-// --- WIDGET PARA SA BAWAT BATA (Child Card) ---
+// --- CHILD CARD WIDGET ---
 // ---------------------------------------------
 class ChildCard extends StatelessWidget {
   final String deviceCode;
@@ -402,7 +499,6 @@ class ChildCard extends StatelessWidget {
           insetPadding: EdgeInsets.all(isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
           child: Stack(
             children: [
-              // Full screen image content
               Container(
                 width: MediaQuery.of(context).size.width,
                 height: MediaQuery.of(context).size.height,
@@ -448,7 +544,6 @@ class ChildCard extends StatelessWidget {
                 ),
               ),
               
-              // Close button
               Positioned(
                 top: isDesktop ? 50.0 : isTablet ? 40.0 : 30.0,
                 right: isDesktop ? 30.0 : isTablet ? 20.0 : 10.0,
@@ -483,7 +578,7 @@ class ChildCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('children').doc(deviceCode).snapshots(), // ✅ ADDED FIRESTORE STREAM
+      stream: FirebaseFirestore.instance.collection('children').doc(deviceCode).snapshots(),
       builder: (context, firestoreSnapshot) {
         if (firestoreSnapshot.connectionState == ConnectionState.waiting) {
           return LinearProgressIndicator(
@@ -601,7 +696,6 @@ class ChildCard extends StatelessWidget {
             padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
             child: Row(
               children: [
-                // Avatar Section
                 GestureDetector(
                   onTap: () => _showFullScreenImage(context, childName, imageProvider),
                   child: CircleAvatar(
@@ -628,7 +722,6 @@ class ChildCard extends StatelessWidget {
                 
                 SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
                 
-                // Info Section
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,13 +750,11 @@ class ChildCard extends StatelessWidget {
                   ),
                 ),
                 
-                // Status Chip Section
                 _buildStatusChip(sosActive, batteryLevel, fontSizeSubtitle),
               ],
             ),
           ),
           
-          // Emergency Border
           if (sosActive)
             Positioned.fill(
               child: IgnorePointer(
