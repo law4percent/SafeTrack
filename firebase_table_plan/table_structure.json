@@ -1,0 +1,188 @@
+{
+  // ==========================================================
+  // [1] USER ACCOUNTS
+  // ==========================================================
+  // Managed by the mobile app's Authentication module.
+
+  "users": {
+    "_user_uid": {
+      "createdAt": 1761370373251,         // Unix timestamp (ms)
+      "email": "parent@email.com",
+      "name": "Parent Name",
+      "phone": "+639123456789"
+    }
+  },
+
+    // ==========================================================
+  // [2] LINKED DEVICE RECORDS
+  // ==========================================================
+  // Used to verify which devices belong to which user.
+  // Before linking, check if UID already exists under another user. Reject if found.
+  "tracker_device_uid": {
+    "_user_uid": {
+      "deviceUIDs": [ "DEVICE_ABC123", "DEVICE_XYZ789" ],
+      "limit": 5,
+      "countDevice": 2
+    }
+  },
+
+  // ==========================================================
+  // [3] TRACKER DEVICES (Linked to User)
+  // ==========================================================
+  // Created when user links a new device in the mobile app.
+  "tracker_devices": {
+    "_user_uid": {
+      "_deviceUID (1)": {
+        // --- From "Add New Device" Screen ---
+        "childName": "John Doe",
+        "childPhoto": "https://.../photo.jpg", // let's save the pic in the local storage and use it not to upload. (No upload just use the phone storage). But the cons is we cannot see the photo if we change phone. I don't recommend firebase storage for now because of the cost (it's not free).
+        "deviceUID": "DEVICE_ABC123",
+        "deviceName": "John’s Tracker",
+        "activated": true,
+
+        // --- Updated automatically by ESP32 ---
+        "isOnline": true,
+        "lastOnline": 1761370373251,
+        "batteryLevel": 82,
+        "lastLocation": {
+          "latitude": 10.315678,
+          "longitude": 123.897654,
+          "timestamp": 1761370373251
+        }
+      }
+    },
+      "_deviceUID (2)": {
+        // --- From "Add New Device" Screen ---
+        "childName": "John Doe",
+        "childPhoto": "https://.../photo.jpg",
+        "deviceUID": "DEVICE_ABC123",
+        "deviceName": "John’s Tracker",
+        "activated": true,
+
+        // --- Updated automatically by ESP32 ---
+        "isOnline": true,
+        "lastOnline": 1761370373251,
+        "batteryLevel": 82,
+        "lastLocation": {
+          "latitude": 10.315678,
+          "longitude": 123.897654,
+          "timestamp": 1761370373251
+        }
+      }
+  },
+
+  // ==========================================================
+  // [4] DEVICE DATA LOGS (GPS HISTORY)
+  // ==========================================================
+  // Written by ESP32 + SIM7600E every few minutes.
+
+  "device_data_log": {
+    "_user_uid": {
+      "_deviceUID (1)": {
+        "2025-10-31T07:30:00": {
+          "latitude": 10.315678,
+          "longitude": 123.897654,
+          "speed": 35.4,
+          "altitude": 12.5
+        },
+        "2025-10-31T07:35:00": {
+          "latitude": 10.320123,
+          "longitude": 123.898754,
+          "speed": 28.9,
+          "altitude": 13.2
+        }
+      }
+    }
+  },
+
+  // ==========================================================
+  // [5] REGISTERED DESTINATIONS (Home / School)
+  // ==========================================================
+  // Configured once by parent for each tracker.
+  "registered_destinations": {
+    "_user_uid": {
+      "_deviceUID (1)": {
+        "home": {
+          "placeName": "Home",
+          "center_point": {
+            "latitude": 10.315678,
+            "longitude": 123.897654
+          },
+          "max_radius": 100
+        },
+        "school": {
+          "placeName": "School",
+          "center_point": {
+            "latitude": 14.599512,
+            "longitude": 120.984222
+          },
+          "max_radius": 150,
+          "schedule": {
+            "arrival_deadline": "07:40",
+            "class_start": "08:00",
+            "class_end": "17:00",
+            "departure_deadline": "17:15"
+          }
+        }
+      }
+    }
+  },
+
+  // ==========================================================
+  // [6] ATTENDANCE LOGS (Computed Daily)
+  // ==========================================================
+  // Created by server or script based on GPS logs and schedule.
+  "attendance_logs": {
+    "_user_uid": {
+      "_deviceUID (1)": {
+        "2025-10-31": {
+          "time_in": "07:35",
+          "time_out": "17:02",
+          "status": "On Time"
+        },
+        "2025-11-01": {
+          "time_in": "07:48",
+          "time_out": "16:45",
+          "status": "Late Arrival"
+        }
+      }
+    }
+  },
+
+  // ==========================================================
+  // [7] WARNINGS LOGS (Behavioral Flags)
+  // ==========================================================
+  // Written by analysis script if irregularities detected.
+  "warnings_logs": {
+    "_user_uid": {
+      "_deviceUID (1)": {
+        "2025-10-31": [
+          {
+            "type": "Late Arrival",
+            "timestamp": "07:42",
+            "details": "Student not inside school by 7:40 AM"
+          },
+          {
+            "type": "Out of School During Class",
+            "timestamp": "13:15",
+            "details": "Student left school at 1:15 PM"
+          }
+        ]
+      }
+    }
+  },
+
+  "behavior_summary": {
+    "_user_uid": {
+        "_deviceUID (1)": {
+            "2025-10": {
+                "totalLate": 2,
+                "totalAbsent": 1,
+                "totalOvertime": 3,
+                "averageArrival": "07:45",
+                "averageDeparture": "17:10"
+            }
+        }
+    }
+  }
+}

@@ -1,0 +1,156 @@
+
+
+
+{
+  // This is only done by Authentication app feature
+  "users": {
+    "RNA7r2pPggZnEDDOy06qqRmNeT62": {
+      "createdAt": 1761370373251,
+      "email": "lawrence7roble@gmail.com",
+      "name": "Lawrence Roble",
+      "phone": "09161962846"
+    }
+  },
+
+  "tracker_devices": {
+    "RNA7r2pPggZnEDDOy06qqRmNeT62": {
+        "TRACKER_DEVICE_ID_1": { // <- this is manually added in the app thru Lik
+            // This is only done by Add new device Screen an app feature
+            "childName": "FirstName-LastName-1",
+            "childPhoto": "https://lh3.googleusercontent.com/a/AAcHTtdN5b3b7Yk1KXo3I1b8v0q2J3xWc1Yk3KX=s96-c",
+            "deviceUID": "TRACKER_DEVICE_ID_1",
+            "deviceName": "Tracker Device 1",
+            "activated": true,
+
+            // This is only done by ESP32 or Tracker devices
+            "isOnline": true,
+            "lastOnline": 1761370373251,
+            "batteryLevel": 85,
+            "lastLocation": {
+                "latitude": 10.315678,
+                "longitude": 123.897654,
+                "timestamp": 1761370373251
+            }
+        },
+        "TRACKER_DEVICE_ID_2": {
+             // This is only done by Add new device Screen an app feature
+            "childName": "FirstName-LastName-2",
+            "childPhoto": "https://lh3.googleusercontent.com/a/AAcHTtdN5b3b7Yk1KXo3I1b8v0q2J3xWc1Yk3KX=s96-c",
+            "deviceUID": "TRACKER_DEVICE_ID_2",
+            "deviceName": "Tracker Device 2",
+            "activated": true,
+
+            // This is only done by ESP32 or Tracker devices
+            "isOnline": true,
+            "lastOnline": 1761370373251,
+            "batteryLevel": 85,
+            "lastLocation": {
+                "latitude": 14.599512,
+                "longitude": 120.984222,
+                "timestamp": 1761370373251
+            }
+        }
+    }
+  },
+
+  // This is only done by Link Device Screen (app feature)
+  // When user click the link device button, the first modal will show up and ask the user to enter the device UID (an unique identifier of the tracker device and can be found on the back of the device)
+  // Then after entering the device UID and click link, the device UID will be stored here under the user's UID
+  // Then
+  "tracker_device_uid": {
+    "RNA7r2pPggZnEDDOy06qqRmNeT62":{
+        "deviceUIDs": [
+            "TRACKER_DEVICE_ID_1",
+            "TRACKER_DEVICE_ID_2"
+        ],
+        "limit": 5,
+        "countDevice": 2
+    }
+  },
+
+  // This is only done by ESP32 or Tracker devices
+  "device_data_log": {
+    "RNA7r2pPggZnEDDOy06qqRmNeT62": {
+        "TRACKER_DEVICE_ID_1": {
+            "date_and_time_1": {
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "speed": 1.5,
+                "altitude": 10.2
+            },
+            "date_and_time_2": {
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "speed": 1.5,
+                "altitude": 10.2
+            },
+            "date_and_time_3": {
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "speed": 1.5,
+                "altitude": 10.2
+            }
+        },
+        "TRACKER_DEVICE_ID_2": {
+            "date_and_time_1": {
+                "latitude": 34.0522,
+                "longitude": -118.2437,
+                "speed": 2.0,
+                "altitude": 15.0
+            },
+            "date_and_time_2": {
+                "latitude": 34.0522,
+                "longitude": -118.2437,
+                "speed": 2.0,
+                "altitude": 15.0
+            }
+        }
+    }
+  },
+
+    "registered_destinations": {
+        "_user_uid": {
+            "_deviceUID": {
+            "school": {
+                "placeName": "School",
+                "center_point": {
+                "latitude": 14.599512,
+                "longitude": 120.984222
+                },
+                "max_radius": 150,
+                "schedule": {
+                "arrival_deadline": "07:40",
+                "class_start": "08:00",
+                "class_end": "17:00",
+                "departure_deadline": "17:15"
+                }
+            },
+            "home": {
+                "placeName": "Home",
+                "center_point": {
+                "latitude": 10.315678,
+                "longitude": 123.897654
+                },
+                "max_radius": 100
+            }
+            }
+        }
+    },
+    "attendance_logs": {
+        "_user_uid": {
+            "_deviceUID": {
+            "2025-10-31": {
+                "time_in": "07:35",
+                "time_out": "17:02",
+                "status": "On Time"
+            },
+            "2025-11-01": {
+                "time_in": "07:48",
+                "time_out": "16:45",
+                "status": "Late Arrival"
+            }
+            }
+        }
+    },
+
+}
