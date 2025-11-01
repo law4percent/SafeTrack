@@ -1,25 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../services/auth_service.dart';
 import '../widgets/quick_actions_grid.dart';
-import 'live_tracking_screen.dart';
+import 'live_location_screen.dart';
 import 'my_children_screen.dart';
 import 'settings_screen.dart';
 
-// ======================================================
-// 🚨 RTDB REGION FIX: Gamitin ang parehong RTDB instance
-// ======================================================
-const String firebaseRtdbUrl = 'https://protectid-f04a3-default-rtdb.asia-southeast1.firebasedatabase.app';
-
-final FirebaseDatabase rtdbInstance = FirebaseDatabase.instanceFor(
-  app: Firebase.app(),
-  databaseURL: firebaseRtdbUrl,
-);
-// ======================================================
+// Firebase Realtime Database instance
+final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -38,10 +28,17 @@ class DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _screens = [
       const DashboardHome(),
-      const LiveTrackingScreen(),
+      const LiveLocationsScreen(),
       const MyChildrenScreen(),
       const SettingsScreen(),
     ];
+  }
+
+  // Public method to change the current tab
+  void setCurrentIndex(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
   }
 
   @override
@@ -100,7 +97,7 @@ class DashboardScreenState extends State<DashboardScreen> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.location_on),
-            label: 'Live Tracking',
+            label: 'Live Location',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.child_care),
@@ -128,23 +125,19 @@ class DashboardHome extends StatelessWidget {
       return const Center(child: Text('User not logged in.'));
     }
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('parents').doc(user.uid).snapshots(),
+    return StreamBuilder<DatabaseEvent>(
+      stream: rtdbInstance.ref('linkedDevices').child(user.uid).child('devices').onValue,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || !snapshot.data!.exists || snapshot.data!.data() == null) {
-          return const Center(child: Text('Error: Parent data not found.'));
+        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+          return const DashboardContent(childDeviceCodes: []);
         }
 
-        final parentData = snapshot.data!.data() as Map<String, dynamic>;
-
-        final List<String> childDeviceCodes = (parentData['childDeviceCodes'] as List<dynamic>?)
-            ?.map((item) => item.toString())
-            .toList() ??
-            [];
+        final devicesData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        final List<String> childDeviceCodes = devicesData.keys.map((key) => key.toString()).toList();
 
         return DashboardContent(childDeviceCodes: childDeviceCodes);
       },
@@ -577,52 +570,51 @@ class ChildCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('children').doc(deviceCode).snapshots(),
-      builder: (context, firestoreSnapshot) {
-        if (firestoreSnapshot.connectionState == ConnectionState.waiting) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: rtdbInstance.ref('linkedDevices').child(deviceCode).onValue,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return LinearProgressIndicator(
             minHeight: isDesktop ? 8.0 : isTablet ? 6.0 : 4.0,
           );
         }
         
-        if (!firestoreSnapshot.hasData || !firestoreSnapshot.data!.exists) {
+        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
           return _buildErrorCard();
         }
         
-        final childData = firestoreSnapshot.data!.data() as Map<String, dynamic>?;
-        if (childData == null) {
-          return _buildErrorCard();
-        }
+        final deviceData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        final childName = deviceData['childName']?.toString() ?? deviceData['deviceName']?.toString() ?? 'Unknown Child';
+        final deviceName = deviceData['deviceName']?.toString() ?? 'Unknown Device';
         
-        final childName = childData['name'] ?? 'Unknown Child (${deviceCode.substring(0, 4)}...)';
-        final avatarPath = childData['avatarUrl']?.toString(); 
-        final childGrade = childData['grade']?.toString().trim();
-        final childSection = childData['section']?.toString().trim();
-        
-        String roomInfo = '';
-        if (childGrade?.isNotEmpty == true) {
-          roomInfo += childGrade!;
-        }
-        if (childSection?.isNotEmpty == true) {
-          roomInfo += (roomInfo.isNotEmpty ? ' - ' : '') + childSection!;
-        }
-        if (roomInfo.isEmpty) {
-          roomInfo = 'Room Info N/A';
-        }
-
         return StreamBuilder<DatabaseEvent>(
           stream: rtdbInstance.ref('children/$deviceCode').onValue,
           builder: (context, rtdbSnapshot) {
             bool sosActive = false;
             bool isOnline = false;
             int batteryLevel = 0;
+            String? avatarPath;
+            String roomInfo = 'Device: $deviceName';
 
             if (rtdbSnapshot.hasData && rtdbSnapshot.data!.snapshot.value != null) {
               final rtdbData = rtdbSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
               sosActive = rtdbData['sosActive'] == true;
               isOnline = rtdbData['isOnline'] == true;
               batteryLevel = (rtdbData['batteryLevel'] as num?)?.toInt() ?? 0;
+              avatarPath = rtdbData['avatarUrl']?.toString();
+              
+              final childGrade = rtdbData['grade']?.toString().trim();
+              final childSection = rtdbData['section']?.toString().trim();
+              
+              if (childGrade?.isNotEmpty == true || childSection?.isNotEmpty == true) {
+                roomInfo = '';
+                if (childGrade?.isNotEmpty == true) {
+                  roomInfo += childGrade!;
+                }
+                if (childSection?.isNotEmpty == true) {
+                  roomInfo += (roomInfo.isNotEmpty ? ' - ' : '') + childSection!;
+                }
+              }
             }
             
             final ImageProvider? imageProvider = _getImageProvider(avatarPath);

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/quick_actions_data.dart';
-import 'quick_action_tile.dart'; 
-import '../screens/live_location_screen.dart';
+import 'quick_action_tile.dart';
 import '../screens/alerts_screen.dart';
 import '../screens/activity_log_screen.dart';
-import '../screens/ask_ai_screen.dart'; 
-import '../auth_service.dart';
+import '../screens/ask_ai_screen.dart';
+import '../services/auth_service.dart';
+import '../screens/dashboard_screen.dart';
 
 class QuickActionsGrid extends StatelessWidget {
   const QuickActionsGrid({super.key});
@@ -37,24 +37,23 @@ class QuickActionsGrid extends StatelessWidget {
           children: quickActionsData.map((action) {
             final label = action['label'] as String;
             
-            VoidCallback tileAction; 
+            VoidCallback tileAction;
 
             switch (label) {
               case 'Live Location':
                 tileAction = () {
                   if (user == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Error: Walay user nga naka-login.')),
+                      const SnackBar(content: Text('Please log in first')),
                     );
                     return;
                   }
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const LiveLocationsScreen(),
-                    ),
-                  );
+                  // Navigate to Live Location tab (index 1) in the bottom navigation
+                  final dashboardState = context.findAncestorStateOfType<DashboardScreenState>();
+                  if (dashboardState != null) {
+                    dashboardState.setCurrentIndex(1);
+                  }
                 };
                 break;
                 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/gemini_service.dart';
 
 class AskAIScreen extends StatefulWidget {
   const AskAIScreen({super.key});
@@ -10,10 +11,11 @@ class AskAIScreen extends StatefulWidget {
 class _AskAIScreenState extends State<AskAIScreen> {
   final TextEditingController _questionController = TextEditingController();
   final List<Map<String, dynamic>> _conversation = [];
+  final GeminiService _geminiService = GeminiService();
   bool _isLoading = false;
 
-  void _askAI(String question) {
-    if (question.isEmpty) return;
+  void _askAI(String question) async {
+    if (question.trim().isEmpty) return;
 
     setState(() {
       _conversation.add({
@@ -24,19 +26,29 @@ class _AskAIScreenState extends State<AskAIScreen> {
       _isLoading = true;
     });
 
-    // Simulate AI response after delay
-    Future.delayed(const Duration(seconds: 2), () {
+    _questionController.clear();
+
+    try {
+      final response = await _geminiService.getResponse(question);
+      
       setState(() {
         _conversation.add({
           'type': 'ai',
-          'content': "This is a sample response for: \"$question\"\n\nAsk AI feature is coming soon with real safety insights!",
+          'content': response,
           'time': DateTime.now(),
         });
         _isLoading = false;
       });
-    });
-
-    _questionController.clear();
+    } catch (e) {
+      setState(() {
+        _conversation.add({
+          'type': 'ai',
+          'content': 'Sorry, I encountered an error. Please try again.',
+          'time': DateTime.now(),
+        });
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -53,14 +65,14 @@ class _AskAIScreenState extends State<AskAIScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             color: Colors.blue[50],
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.info, size: 16, color: Colors.blue),
-                SizedBox(width: 8),
+                Icon(Icons.auto_awesome, size: 20, color: Colors.blue[800]),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'AI Assistant - Coming Soon',
-                    style: TextStyle(color: Colors.blue, fontSize: 12),
+                    'AI Assistant - Powered by Gemini',
+                    style: TextStyle(color: Colors.blue[800], fontSize: 13, fontWeight: FontWeight.w500),
                   ),
                 ),
               ],
@@ -70,22 +82,33 @@ class _AskAIScreenState extends State<AskAIScreen> {
           // Conversation
           Expanded(
             child: _conversation.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.auto_awesome, size: 60, color: Colors.blue),
-                        SizedBox(height: 16),
-                        Text(
-                          'Ask me anything about safety',
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
-                          textAlign: TextAlign.center,
+                        Icon(Icons.auto_awesome, size: 60, color: Colors.blue[300]),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Ask me anything!',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
-                        SizedBox(height: 8),
-                        Text(
-                          'This feature will provide intelligent safety insights',
-                          style: TextStyle(color: Colors.grey, fontSize: 12),
-                          textAlign: TextAlign.center,
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Try asking:',
+                                style: TextStyle(color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildSuggestionChip('How is my child?'),
+                              const SizedBox(height: 4),
+                              _buildSuggestionChip('Who made this app?'),
+                              const SizedBox(height: 4),
+                              _buildSuggestionChip('Safety tips for children'),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -100,7 +123,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
                       }
                       
                       final messageIndex = _isLoading ? index - 1 : index;
-                      final message = _conversation[messageIndex];
+                      final message = _conversation[_conversation.length - 1 - messageIndex];
                       return _buildMessageBubble(message);
                     },
                   ),
@@ -133,13 +156,38 @@ class _AskAIScreenState extends State<AskAIScreen> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Colors.blue),
+                  icon: Icon(Icons.send, color: Colors.blue[800]),
                   onPressed: () => _askAI(_questionController.text),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionChip(String text) {
+    return GestureDetector(
+      onTap: () => _askAI(text),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.blue[50],
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.blue[200]!),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lightbulb_outline, size: 16, color: Colors.blue[700]),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: TextStyle(color: Colors.blue[900], fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -158,13 +206,13 @@ class _AskAIScreenState extends State<AskAIScreen> {
               width: 32,
               height: 32,
               decoration: BoxDecoration(
-                color: Colors.blue,
+                color: Colors.blue[800],
                 borderRadius: BorderRadius.circular(16),
               ),
               child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
             ),
           if (!isUser) const SizedBox(width: 8),
-          Expanded(
+          Flexible(
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -205,7 +253,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: Colors.blue,
+              color: Colors.blue[800],
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
@@ -233,5 +281,11 @@ class _AskAIScreenState extends State<AskAIScreen> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _questionController.dispose();
+    super.dispose();
   }
 }

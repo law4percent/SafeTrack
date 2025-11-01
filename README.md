@@ -163,6 +163,8 @@ Firebase credentials are already configured in:
    ```bash
    flutter run
    ```
+5. **Run in debug mode with hot reload**
+   flutter run -d <device_id>
 
 ### On iOS (macOS only)
 

@@ -29,7 +29,6 @@ class AuthService with ChangeNotifier {
         'email': email,
         'phone': phone,
         'createdAt': ServerValue.timestamp,
-        'role': 'parent', // Only parent role exists
       });
 
       // Initialize empty linked devices list
@@ -63,8 +62,29 @@ class AuthService with ChangeNotifier {
 
   Future<void> resetPassword(String email) async {
     try {
+      // Validate email format before sending
+      if (email.isEmpty || !email.contains('@')) {
+        throw Exception('Invalid email format');
+      }
+      
       await _auth.sendPasswordResetEmail(email: email);
+      debugPrint('✅ Password reset email sent successfully to: $email');
+    } on FirebaseAuthException catch (e) {
+      debugPrint('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+      
+      // Provide user-friendly error messages
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('No account found with this email address.');
+        case 'invalid-email':
+          throw Exception('Invalid email address format.');
+        case 'too-many-requests':
+          throw Exception('Too many requests. Please try again later.');
+        default:
+          throw Exception(e.message ?? 'Failed to send password reset email');
+      }
     } catch (e) {
+      debugPrint('❌ Unexpected error in resetPassword: $e');
       rethrow;
     }
   }

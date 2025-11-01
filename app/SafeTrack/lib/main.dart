@@ -10,25 +10,26 @@ import 'screens/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase with platform-specific options
   await Firebase.initializeApp();
   
-  // 🔥 ADD REALTIME DATABASE CONFIGURATION
+  // Initialize Realtime Database with persistence
   _initializeRealtimeDatabase();
   
   runApp(MyApp());
 }
 
-// 🔥 NEW METHOD: Initialize Realtime Database
+// Initialize Realtime Database with offline persistence
 void _initializeRealtimeDatabase() {
   try {
-    // Set your Realtime Database URL
     FirebaseDatabase database = FirebaseDatabase.instance;
     
     // Enable persistence for offline support
     database.setPersistenceEnabled(true);
-    database.setPersistenceCacheSizeBytes(10000000); // 10MB
+    database.setPersistenceCacheSizeBytes(10000000); // 10MB cache
     
-    debugPrint("✅ Realtime Database initialized successfully");
+    debugPrint("✅ Firebase Realtime Database initialized with offline persistence");
   } catch (e) {
     debugPrint("❌ Error initializing Realtime Database: $e");
   }

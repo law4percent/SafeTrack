@@ -21,10 +21,7 @@ class DefaultFirebaseOptions {
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for android - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return android;
       case TargetPlatform.iOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for ios - '
@@ -73,6 +70,15 @@ class DefaultFirebaseOptions {
     authDomain: 'safetrack-76a0c.firebaseapp.com',
     storageBucket: 'safetrack-76a0c.firebasestorage.app',
     measurementId: 'G-T9PW7FPCZP',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyBxE1-lPFOY8ugfYQB_CvUR7xtWWhZZRFY',
+    appId: '1:662603140937:android:79b904026f21f7996a1498',
+    messagingSenderId: '662603140937',
+    projectId: 'safetrack-76a0c',
+    storageBucket: 'safetrack-76a0c.firebasestorage.app',
+    databaseURL: 'https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
 }

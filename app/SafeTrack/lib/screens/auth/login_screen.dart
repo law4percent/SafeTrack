@@ -381,16 +381,28 @@ class LoginScreenState extends State<LoginScreen> {
   void _showPasswordResetDialog() {
     final resetEmailController = TextEditingController();
     bool isLoading = false;
+    String? errorMessage;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Reset Password'),
+        builder: (dialogContextBuilder, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.lock_reset, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Reset Password'),
+            ],
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Enter your email address to receive a password reset link.'),
+              Text(
+                'Enter your email address to receive a password reset link.',
+                style: TextStyle(fontSize: 14),
+              ),
               SizedBox(height: 16),
               TextField(
                 controller: resetEmailController,
@@ -398,67 +410,87 @@ class LoginScreenState extends State<LoginScreen> {
                   labelText: 'Email',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.email),
+                  errorText: errorMessage,
                 ),
                 keyboardType: TextInputType.emailAddress,
+                enabled: !isLoading,
+                onChanged: (_) {
+                  if (errorMessage != null) {
+                    setDialogState(() => errorMessage = null);
+                  }
+                },
               ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: isLoading ? null : () => Navigator.pop(dialogContext),
+              onPressed: isLoading ? null : () {
+                resetEmailController.dispose();
+                Navigator.pop(dialogContext);
+              },
               child: Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: isLoading ? null : () async {
                 final email = resetEmailController.text.trim();
                 
+                // Validation
                 if (email.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Please enter your email'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
+                  setDialogState(() => errorMessage = 'Please enter your email');
                   return;
                 }
 
-                if (!email.contains('@')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Please enter a valid email'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
+                if (!email.contains('@') || !email.contains('.')) {
+                  setDialogState(() => errorMessage = 'Please enter a valid email');
                   return;
                 }
 
-                setState(() => isLoading = true);
+                setDialogState(() {
+                  isLoading = true;
+                  errorMessage = null;
+                });
 
                 try {
                   final authService = Provider.of<AuthService>(context, listen: false);
                   await authService.resetPassword(email);
                   
+                  resetEmailController.dispose();
                   Navigator.pop(dialogContext);
                   
+                  // Show success message on the main screen
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('✅ Password reset link sent to $email'),
+                        content: Row(
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.white),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text('Password reset link sent to $email\nPlease check your inbox and spam folder.'),
+                            ),
+                          ],
+                        ),
                         backgroundColor: Colors.green,
+                        duration: Duration(seconds: 5),
                       ),
                     );
                   }
                 } catch (e) {
-                  setState(() => isLoading = false);
-                  
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to send reset link: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  setDialogState(() {
+                    isLoading = false;
+                    // Clean up error message
+                    String errorText = e.toString();
+                    if (errorText.startsWith('Exception: ')) {
+                      errorText = errorText.substring('Exception: '.length);
+                    }
+                    errorMessage = errorText;
+                  });
                 }
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
               child: isLoading
                   ? SizedBox(
                       width: 16,
@@ -473,7 +505,12 @@ class LoginScreenState extends State<LoginScreen> {
           ],
         ),
       ),
-    );
+    ).then((_) {
+      // Dispose controller if dialog is dismissed
+      if (!resetEmailController.text.isEmpty) {
+        resetEmailController.dispose();
+      }
+    });
   }
 
   @override
