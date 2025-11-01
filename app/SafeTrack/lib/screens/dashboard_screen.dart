@@ -1,24 +1,119 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
-import '../auth_service.dart';
-import '../widgets/quick_actions_grid.dart'; 
+import '../services/auth_service.dart';
+import '../widgets/quick_actions_grid.dart';
+import 'live_location_screen.dart';
+import 'my_children_screen.dart';
+import 'settings_screen.dart';
 
-// ======================================================
-// 🚨 RTDB REGION FIX: Gamitin ang parehong RTDB instance
-// ======================================================
-const String firebaseRtdbUrl = 'https://protectid-f04a3-default-rtdb.asia-southeast1.firebasedatabase.app';
+// Firebase Realtime Database instance
+final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
 
-final FirebaseDatabase rtdbInstance = FirebaseDatabase.instanceFor(
-  app: Firebase.app(),
-  databaseURL: firebaseRtdbUrl,
-);
-// ======================================================
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
+  
+  @override
+  DashboardScreenState createState() => DashboardScreenState();
+}
 
-// --- MAIN DASHBOARD WIDGET ---
+class DashboardScreenState extends State<DashboardScreen> {
+  int _currentIndex = 0;
+
+  late final List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      const DashboardHome(),
+      const LiveLocationsScreen(),
+      const MyChildrenScreen(),
+      const SettingsScreen(),
+    ];
+  }
+
+  // Public method to change the current tab
+  void setCurrentIndex(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Image.asset(
+              'assets/images/my_app_logo.png',
+              height: MediaQuery.of(context).size.width * 0.20,
+              width: MediaQuery.of(context).size.width * 0.20,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Icon(
+                  Icons.school, 
+                  color: Colors.white, 
+                  size: MediaQuery.of(context).size.width * 0.10
+                );
+              },
+            ),
+            SizedBox(width: MediaQuery.of(context).size.width * 0.02),
+            Text(
+              'SafeTrack - Student Safety',
+              style: TextStyle(
+                fontSize: MediaQuery.of(context).size.width * 0.038, 
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        centerTitle: false,
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        elevation: 4,
+      ),
+      body: _screens[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          if (index < _screens.length) {
+            setState(() => _currentIndex = index);
+          }
+        },
+        type: BottomNavigationBarType.fixed, 
+        selectedItemColor: Colors.blue[700],
+        unselectedItemColor: Colors.grey,
+        backgroundColor: Colors.white,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.location_on),
+            label: 'Live Location',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.child_care),
+            label: 'My Children',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- MAIN DASHBOARD HOME WIDGET ---
 class DashboardHome extends StatelessWidget {
   const DashboardHome({super.key});
 
@@ -30,23 +125,19 @@ class DashboardHome extends StatelessWidget {
       return const Center(child: Text('User not logged in.'));
     }
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('parents').doc(user.uid).snapshots(),
+    return StreamBuilder<DatabaseEvent>(
+      stream: rtdbInstance.ref('linkedDevices').child(user.uid).child('devices').onValue,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || !snapshot.data!.exists || snapshot.data!.data() == null) {
-          return const Center(child: Text('Error: Parent data not found.'));
+        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+          return const DashboardContent(childDeviceCodes: []);
         }
 
-        final parentData = snapshot.data!.data() as Map<String, dynamic>;
-
-        final List<String> childDeviceCodes = (parentData['childDeviceCodes'] as List<dynamic>?)
-            ?.map((item) => item.toString())
-            .toList() ??
-            [];
+        final devicesData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        final List<String> childDeviceCodes = devicesData.keys.map((key) => key.toString()).toList();
 
         return DashboardContent(childDeviceCodes: childDeviceCodes);
       },
@@ -73,7 +164,7 @@ class DashboardContent extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section: Monitoring Status - FIXED LOGIC
+            // Header Section: Monitoring Status
             _buildMonitoringStatus(isTablet, isDesktop),
             
             SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
@@ -116,7 +207,6 @@ class DashboardContent extends StatelessWidget {
 
         final childrenStatus = snapshot.data ?? [];
         
-        // 🔥 FIXED LOGIC: Proper safety status checking
         final bool hasEmergency = childrenStatus.any((child) => child['sosActive'] == true);
         final bool allChildrenOnline = childrenStatus.isNotEmpty && 
             childrenStatus.every((child) => child['isOnline'] == true);
@@ -377,7 +467,7 @@ class DashboardContent extends StatelessWidget {
 }
 
 // ---------------------------------------------
-// --- WIDGET PARA SA BAWAT BATA (Child Card) ---
+// --- CHILD CARD WIDGET ---
 // ---------------------------------------------
 class ChildCard extends StatelessWidget {
   final String deviceCode;
@@ -402,7 +492,6 @@ class ChildCard extends StatelessWidget {
           insetPadding: EdgeInsets.all(isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
           child: Stack(
             children: [
-              // Full screen image content
               Container(
                 width: MediaQuery.of(context).size.width,
                 height: MediaQuery.of(context).size.height,
@@ -448,7 +537,6 @@ class ChildCard extends StatelessWidget {
                 ),
               ),
               
-              // Close button
               Positioned(
                 top: isDesktop ? 50.0 : isTablet ? 40.0 : 30.0,
                 right: isDesktop ? 30.0 : isTablet ? 20.0 : 10.0,
@@ -482,52 +570,51 @@ class ChildCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('children').doc(deviceCode).snapshots(), // ✅ ADDED FIRESTORE STREAM
-      builder: (context, firestoreSnapshot) {
-        if (firestoreSnapshot.connectionState == ConnectionState.waiting) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: rtdbInstance.ref('linkedDevices').child(deviceCode).onValue,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return LinearProgressIndicator(
             minHeight: isDesktop ? 8.0 : isTablet ? 6.0 : 4.0,
           );
         }
         
-        if (!firestoreSnapshot.hasData || !firestoreSnapshot.data!.exists) {
+        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
           return _buildErrorCard();
         }
         
-        final childData = firestoreSnapshot.data!.data() as Map<String, dynamic>?;
-        if (childData == null) {
-          return _buildErrorCard();
-        }
+        final deviceData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        final childName = deviceData['childName']?.toString() ?? deviceData['deviceName']?.toString() ?? 'Unknown Child';
+        final deviceName = deviceData['deviceName']?.toString() ?? 'Unknown Device';
         
-        final childName = childData['name'] ?? 'Unknown Child (${deviceCode.substring(0, 4)}...)';
-        final avatarPath = childData['avatarUrl']?.toString(); 
-        final childGrade = childData['grade']?.toString().trim();
-        final childSection = childData['section']?.toString().trim();
-        
-        String roomInfo = '';
-        if (childGrade?.isNotEmpty == true) {
-          roomInfo += childGrade!;
-        }
-        if (childSection?.isNotEmpty == true) {
-          roomInfo += (roomInfo.isNotEmpty ? ' - ' : '') + childSection!;
-        }
-        if (roomInfo.isEmpty) {
-          roomInfo = 'Room Info N/A';
-        }
-
         return StreamBuilder<DatabaseEvent>(
           stream: rtdbInstance.ref('children/$deviceCode').onValue,
           builder: (context, rtdbSnapshot) {
             bool sosActive = false;
             bool isOnline = false;
             int batteryLevel = 0;
+            String? avatarPath;
+            String roomInfo = 'Device: $deviceName';
 
             if (rtdbSnapshot.hasData && rtdbSnapshot.data!.snapshot.value != null) {
               final rtdbData = rtdbSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
               sosActive = rtdbData['sosActive'] == true;
               isOnline = rtdbData['isOnline'] == true;
               batteryLevel = (rtdbData['batteryLevel'] as num?)?.toInt() ?? 0;
+              avatarPath = rtdbData['avatarUrl']?.toString();
+              
+              final childGrade = rtdbData['grade']?.toString().trim();
+              final childSection = rtdbData['section']?.toString().trim();
+              
+              if (childGrade?.isNotEmpty == true || childSection?.isNotEmpty == true) {
+                roomInfo = '';
+                if (childGrade?.isNotEmpty == true) {
+                  roomInfo += childGrade!;
+                }
+                if (childSection?.isNotEmpty == true) {
+                  roomInfo += (roomInfo.isNotEmpty ? ' - ' : '') + childSection!;
+                }
+              }
             }
             
             final ImageProvider? imageProvider = _getImageProvider(avatarPath);
@@ -601,7 +688,6 @@ class ChildCard extends StatelessWidget {
             padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
             child: Row(
               children: [
-                // Avatar Section
                 GestureDetector(
                   onTap: () => _showFullScreenImage(context, childName, imageProvider),
                   child: CircleAvatar(
@@ -628,7 +714,6 @@ class ChildCard extends StatelessWidget {
                 
                 SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
                 
-                // Info Section
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,13 +742,11 @@ class ChildCard extends StatelessWidget {
                   ),
                 ),
                 
-                // Status Chip Section
                 _buildStatusChip(sosActive, batteryLevel, fontSizeSubtitle),
               ],
             ),
           ),
           
-          // Emergency Border
           if (sosActive)
             Positioned.fill(
               child: IgnorePointer(

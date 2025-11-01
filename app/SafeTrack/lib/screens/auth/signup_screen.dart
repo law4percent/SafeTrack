@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'auth_service.dart';
+import '../../services/auth_service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -12,8 +12,8 @@ class SignUpScreenState extends State<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  // TINANGGAL: final _deviceCodeController = TextEditingController(); 
   bool _showPassword = false;
   bool _isLoading = false;
 
@@ -27,8 +27,8 @@ class SignUpScreenState extends State<SignUpScreen> {
     await authService.signUpWithEmail(
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
+      phone: _phoneController.text.trim(),
       password: _passwordController.text.trim(),
-      // TINANGGAL ANG PARAMETER NA CHILDDEVICECODE DITO (Dahil optional na sa AuthService)
     );
         
     // RUN ON SUCCESS: 
@@ -124,6 +124,29 @@ class SignUpScreenState extends State<SignUpScreen> {
               ),
               SizedBox(height: 16),
               
+              // Phone Number Field
+              TextFormField(
+                controller: _phoneController,
+                decoration: InputDecoration(
+                  labelText: 'Phone Number',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.phone),
+                  hintText: '+63 XXX XXX XXXX',
+                ),
+                keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter your phone number';
+                  }
+                  // Basic validation for phone format
+                  if (value.length < 10) {
+                    return 'Please enter a valid phone number';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 16),
+              
               // Password Field
               TextFormField(
                 controller: _passwordController,
@@ -200,8 +223,8 @@ class SignUpScreenState extends State<SignUpScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _phoneController.dispose();
     _passwordController.dispose();
-    // TINANGGAL: _deviceCodeController.dispose();
     super.dispose();
   }
 }
