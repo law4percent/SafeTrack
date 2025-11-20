@@ -10,7 +10,7 @@ A comprehensive Flutter-based child safety monitoring application that provides 
 - [Firebase Setup](#-firebase-setup)
 - [Environment Configuration](#-environment-configuration)
 - [Running the App](#-running-the-app)
-- [APK Convertion](#-apk-convertion)
+- [APK Convertion](#%EF%B8%8F-apk-convertion)
 - [Project Structure](#-project-structure)
 - [Documentation](#-documentation)
 - [Troubleshooting](#-troubleshooting)
