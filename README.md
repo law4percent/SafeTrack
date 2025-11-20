@@ -10,6 +10,7 @@ A comprehensive Flutter-based child safety monitoring application that provides 
 - [Firebase Setup](#-firebase-setup)
 - [Environment Configuration](#-environment-configuration)
 - [Running the App](#-running-the-app)
+- [APK Convertion](#-apk-convertion)
 - [Project Structure](#-project-structure)
 - [Documentation](#-documentation)
 - [Troubleshooting](#-troubleshooting)
@@ -175,6 +176,18 @@ cd ios
 pod install
 cd ..
 flutter run
+```
+
+## 🏗️ APK Convertion
+
+**Run Command**
+```bash
+flutter build apk --release
+```
+
+**Will generate**
+```bash
+build/app/outputs/flutter-apk/app-release.apk
 ```
 
 ## 📁 Project Structure
