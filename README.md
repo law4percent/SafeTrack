@@ -74,8 +74,8 @@ Before you begin, ensure you have the following installed:
 ### 2. Configure Firebase for Android
 
 1. Add Android app in Firebase Console
-2. Download `google-services.json`
-3. Place it in `android/app/google-services.json` (Already configured ✅)
+2. Download [google-services.json](https://drive.google.com/drive/folders/1q82avCUL4_bUg-sKYnFH-BknVFZUXBM8?usp=sharing)
+3. Place it in `android/app/google-services.json`
 
 ### 3. Configure Firebase for iOS (Optional)
 
