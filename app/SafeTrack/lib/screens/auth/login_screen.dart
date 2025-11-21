@@ -507,7 +507,7 @@ class LoginScreenState extends State<LoginScreen> {
       ),
     ).then((_) {
       // Dispose controller if dialog is dismissed
-      if (!resetEmailController.text.isEmpty) {
+      if (resetEmailController.text.isNotEmpty) {
         resetEmailController.dispose();
       }
     });
