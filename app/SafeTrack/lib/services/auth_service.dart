@@ -89,7 +89,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // ADD THIS NEW METHOD:
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -156,6 +155,7 @@ class AuthService with ChangeNotifier {
     required String deviceId,
     required String deviceName,
     String? childName,
+    String? imageProfileBase64,
   }) async {
     if (_auth.currentUser == null) throw Exception('User not logged in');
     
@@ -168,8 +168,29 @@ class AuthService with ChangeNotifier {
           .set({
         'deviceName': deviceName,
         'childName': childName ?? 'Unknown',
+        'imageProfileBase64': imageProfileBase64 ?? '',
         'addedAt': ServerValue.timestamp,
         'status': 'active',
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> updateLinkedDeviceImage({
+    required String deviceId,
+    required String imageProfileBase64,
+  }) async {
+    if (_auth.currentUser == null) throw Exception('User not logged in');
+    
+    try {
+      await _database
+          .child('linkedDevices')
+          .child(_auth.currentUser!.uid)
+          .child('devices')
+          .child(deviceId)
+          .update({
+        'imageProfileBase64': imageProfileBase64,
       });
     } catch (e) {
       rethrow;

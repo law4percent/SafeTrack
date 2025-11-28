@@ -1,13 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
-
-// Unused Package
-// import 'package:image_picker/image_picker.dart'; 
-// import 'dart:io'; 
-// import 'package:path/path.dart' as path;
-// import 'package:path_provider/path_provider.dart';
 
 // Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
@@ -16,13 +13,13 @@ class LinkedDevice {
   final String deviceCode;
   final String deviceName;
   final String childName;
-  final String? avatarPath;
+  final String? imageProfileBase64;
 
   LinkedDevice({
     required this.deviceCode,
     required this.deviceName,
     required this.childName,
-    this.avatarPath,
+    this.imageProfileBase64,
   });
 
   factory LinkedDevice.fromRTDB(String code, Map<dynamic, dynamic> data) {
@@ -30,7 +27,7 @@ class LinkedDevice {
       deviceCode: code,
       deviceName: data['deviceName']?.toString() ?? 'Device ${code.substring(0, 4)}',
       childName: data['childName']?.toString() ?? 'Unknown',
-      avatarPath: data['avatarUrl']?.toString(),
+      imageProfileBase64: data['imageProfileBase64']?.toString(),
     );
   }
 }
@@ -263,6 +260,41 @@ class DeviceCard extends StatelessWidget {
     }
   }
 
+  void _changeProfileImage(BuildContext context, String deviceCode) async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+
+    if (image == null) return;
+
+    try {
+      final bytes = await image.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.updateLinkedDeviceImage(
+        deviceId: deviceCode,
+        imageProfileBase64: base64Image,
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile image updated successfully')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update image: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<AuthService>(context, listen: false).currentUser;
@@ -328,9 +360,34 @@ class DeviceCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
-        leading: const CircleAvatar(
-          radius: 28,
-          child: Icon(Icons.person, size: 30),
+        leading: GestureDetector(
+          onTap: () => _changeProfileImage(context, deviceCode),
+          child: Stack(
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
+                    ? MemoryImage(base64Decode(device.imageProfileBase64!))
+                    : null,
+                child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
+                    ? const Icon(Icons.person, size: 30)
+                    : null,
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.blueAccent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.camera_alt, size: 12, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,6 +427,26 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
   final _codeController = TextEditingController();
   final _nameController = TextEditingController();
   bool _isLoading = false;
+  String? _imageBase64;
+  File? _imageFile;
+
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      setState(() {
+        _imageBase64 = base64Encode(bytes);
+        _imageFile = File(image.path);
+      });
+    }
+  }
 
   Future<void> _linkDevice() async {
     final deviceCode = _codeController.text.trim().toUpperCase();
@@ -393,6 +470,7 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
         deviceId: deviceCode,
         deviceName: deviceCode,
         childName: deviceName,
+        imageProfileBase64: _imageBase64,
       );
 
       if (!mounted) return;
@@ -423,59 +501,96 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.qr_code_scanner, size: 40, color: Colors.blueAccent),
-            const SizedBox(height: 10),
-            const Text(
-              'Link New Device',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _codeController,
-              decoration: const InputDecoration(
-                labelText: 'DEVICE CODE',
-                border: OutlineInputBorder(),
-                hintText: 'e.g., DEVICE001',
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.qr_code_scanner, size: 40, color: Colors.blueAccent),
+              const SizedBox(height: 10),
+              const Text(
+                'Link New Device',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-              textCapitalization: TextCapitalization.characters,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'CHILD NAME',
-                border: OutlineInputBorder(),
-                hintText: 'e.g., Juan',
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: _pickImage,
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundImage: _imageBase64 != null
+                          ? MemoryImage(base64Decode(_imageBase64!))
+                          : null,
+                      child: _imageBase64 == null
+                          ? const Icon(Icons.person, size: 50)
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-                    child: const Text('CANCEL'),
-                  ),
+              const SizedBox(height: 8),
+              const Text(
+                'Tap to add photo',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _codeController,
+                decoration: const InputDecoration(
+                  labelText: 'DEVICE CODE',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., DEVICE001',
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _linkDevice,
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('LINK DEVICE'),
-                  ),
+                textCapitalization: TextCapitalization.characters,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'CHILD NAME',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., Juan',
                 ),
-              ],
-            ),
-          ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                      child: const Text('CANCEL'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _linkDevice,
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('LINK DEVICE'),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
         ),
       ),
     );
