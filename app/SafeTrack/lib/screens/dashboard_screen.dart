@@ -174,9 +174,6 @@ class DashboardContent extends StatelessWidget {
             
             SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
             
-            // AI Behavioral Insights
-            _buildAIBsection(isTablet, isDesktop),
-            
             SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 25.0),
             
             // Quick Actions Section
@@ -390,55 +387,6 @@ class DashboardContent extends StatelessWidget {
     }
   }
 
-  Widget _buildAIBsection(bool isTablet, bool isDesktop) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _getAllChildrenStatus(),
-      builder: (context, snapshot) {
-        final childrenStatus = snapshot.data ?? [];
-        final bool hasEmergency = childrenStatus.any((child) => child['sosActive'] == true);
-        final bool allOnline = childrenStatus.isNotEmpty && 
-            childrenStatus.every((child) => child['isOnline'] == true);
-
-        String insightText;
-        
-        if (hasEmergency) {
-          insightText = '🚨 EMERGENCY ALERT! Immediate attention required.';
-        } else if (childrenStatus.isEmpty) {
-          insightText = 'Link a device to enable insights.';
-        } else if (allOnline) {
-          insightText = 'All Patterns Normal. Your children are following their usual routines.';
-        } else {
-          insightText = 'Some devices offline. Monitoring limited connectivity.';
-        }
-
-        return Card(
-          elevation: 2,
-          child: ListTile(
-            leading: Icon(
-              Icons.insights,
-              color: hasEmergency ? Colors.red : Colors.blue,
-              size: isDesktop ? 32.0 : isTablet ? 28.0 : 24.0,
-            ),
-            title: Text(
-              'AI Behavioral Insights',
-              style: TextStyle(
-                fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            subtitle: Text(
-              insightText,
-              style: TextStyle(
-                fontSize: isDesktop ? 14.0 : isTablet ? 13.0 : 12.0,
-                color: hasEmergency ? Colors.red : null,
-                fontWeight: hasEmergency ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() {
     return Stream.fromFuture(Future.wait(
