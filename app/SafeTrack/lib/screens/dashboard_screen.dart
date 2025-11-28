@@ -419,11 +419,11 @@ class DashboardContent extends StatelessWidget {
         final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
         
         final sosActive = deviceStatus?['sos']?.toString() == 'true';
-        final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
         
         // Check if device is online (last update within 5 minutes)
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final isOnline = lastUpdate > 0 && (now - lastUpdate) < 300000; // 5 minutes
+        // final now = DateTime.now().millisecondsSinceEpoch;
+        final lastUpdateStr = deviceStatus?['lastUpdate']?.toString() ?? '';
+        final isOnline = _isDeviceOnline(lastUpdateStr);
         
         return {
           'deviceCode': deviceCode,
@@ -432,6 +432,42 @@ class DashboardContent extends StatelessWidget {
         };
       }),
     ));
+  }
+
+    bool _isDeviceOnline(String lastUpdateStr) {
+    if (lastUpdateStr.isEmpty) return false;
+    
+    try {
+      // Parse format: "2024-11-29 14:30:45" or "11/29/2024 14:30:45"
+      DateTime lastUpdate;
+      
+      if (lastUpdateStr.contains('-')) {
+        // Format: "R"
+        lastUpdate = DateTime.parse(lastUpdateStr);
+      } else {
+        // Format: "11/29/2024 14:30:45"
+        final parts = lastUpdateStr.split(' ');
+        final dateParts = parts[0].split('/');
+        final timeParts = parts[1].split(':');
+        
+        lastUpdate = DateTime(
+          int.parse(dateParts[2]), // year
+          int.parse(dateParts[0]), // month
+          int.parse(dateParts[1]), // day
+          int.parse(timeParts[0]), // hour
+          int.parse(timeParts[1]), // minute
+          int.parse(timeParts[2]), // second
+        );
+      }
+      
+      final now = DateTime.now();
+      final difference = now.difference(lastUpdate).inMinutes;
+      
+      return difference < 5; // Online if updated within 5 minutes
+    } catch (e) {
+      debugPrint('Error parsing lastUpdate: $e');
+      return false;
+    }
   }
 }
 
@@ -451,6 +487,42 @@ class ChildCard extends StatelessWidget {
     required this.isTablet,
     required this.isDesktop,
   });
+
+  bool _isDeviceOnline(String lastUpdateStr) {
+    if (lastUpdateStr.isEmpty) return false;
+    
+    try {
+      // Parse format: "2024-11-29 14:30:45" or "11/29/2024 14:30:45"
+      DateTime lastUpdate;
+      
+      if (lastUpdateStr.contains('-')) {
+        // Format: "2024-11-29 14:30:45"
+        lastUpdate = DateTime.parse(lastUpdateStr);
+      } else {
+        // Format: "11/29/2024 14:30:45"
+        final parts = lastUpdateStr.split(' ');
+        final dateParts = parts[0].split('/');
+        final timeParts = parts[1].split(':');
+        
+        lastUpdate = DateTime(
+          int.parse(dateParts[2]), // year
+          int.parse(dateParts[0]), // month
+          int.parse(dateParts[1]), // day
+          int.parse(timeParts[0]), // hour
+          int.parse(timeParts[1]), // minute
+          int.parse(timeParts[2]), // second
+        );
+      }
+      
+      final now = DateTime.now();
+      final difference = now.difference(lastUpdate).inMinutes;
+      
+      return difference < 5; // Online if updated within 5 minutes
+    } catch (e) {
+      debugPrint('Error parsing lastUpdate: $e');
+      return false;
+    }
+  }
 
   void _showDeviceInfo(BuildContext context) {
     final addedAt = (deviceData['addedAt'] as num?)?.toInt();
@@ -607,12 +679,13 @@ class ChildCard extends StatelessWidget {
     final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
     final batteryLevel = (deviceStatus?['batteryLevel'] as num?)?.toInt() ?? 0;
     final sosActive = deviceStatus?['sos']?.toString() == 'true';
-    final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
+    // final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
     final lastLocation = deviceStatus?['lastLocation'] as Map<dynamic, dynamic>?;
     
     // Check if device is online (last update within 5 minutes)
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final isOnline = lastUpdate > 0 && (now - lastUpdate) < 300000; // 5 minutes
+    // final now = DateTime.now().millisecondsSinceEpoch;
+    final lastUpdateStr = deviceStatus?['lastUpdate']?.toString() ?? '';
+    final isOnline = _isDeviceOnline(lastUpdateStr);
     
     // Build grade/section string
     String gradeSection = '';
