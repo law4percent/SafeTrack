@@ -434,38 +434,34 @@ class DashboardContent extends StatelessWidget {
     ));
   }
 
-    bool _isDeviceOnline(String lastUpdateStr) {
+  bool _isDeviceOnline(String lastUpdateStr) {
     if (lastUpdateStr.isEmpty) return false;
     
     try {
-      // Parse format: "2024-11-29 14:30:45" or "11/29/2024 14:30:45"
-      DateTime lastUpdate;
+      // Split date and time
+      final parts = lastUpdateStr.trim().split(' ');
+      if (parts.length != 2) return false;
       
-      if (lastUpdateStr.contains('-')) {
-        // Format: "R"
-        lastUpdate = DateTime.parse(lastUpdateStr);
-      } else {
-        // Format: "11/29/2024 14:30:45"
-        final parts = lastUpdateStr.split(' ');
-        final dateParts = parts[0].split('/');
-        final timeParts = parts[1].split(':');
-        
-        lastUpdate = DateTime(
-          int.parse(dateParts[2]), // year
-          int.parse(dateParts[0]), // month
-          int.parse(dateParts[1]), // day
-          int.parse(timeParts[0]), // hour
-          int.parse(timeParts[1]), // minute
-          int.parse(timeParts[2]), // second
-        );
-      }
+      final dateParts = parts[0].split('-');
+      final timeParts = parts[1].split(':');
+      
+      if (dateParts.length != 3 || timeParts.length != 3) return false;
+      
+      final lastUpdate = DateTime(
+        int.parse(dateParts[0]), // year
+        int.parse(dateParts[1]), // month
+        int.parse(dateParts[2]), // day
+        int.parse(timeParts[0]), // hour (works with or without leading zero)
+        int.parse(timeParts[1]), // minute
+        int.parse(timeParts[2]), // second
+      );
       
       final now = DateTime.now();
       final difference = now.difference(lastUpdate).inMinutes;
       
       return difference < 5; // Online if updated within 5 minutes
     } catch (e) {
-      debugPrint('Error parsing lastUpdate: $e');
+      debugPrint('Error parsing lastUpdate: $e - Value: $lastUpdateStr');
       return false;
     }
   }
@@ -492,34 +488,30 @@ class ChildCard extends StatelessWidget {
     if (lastUpdateStr.isEmpty) return false;
     
     try {
-      // Parse format: "2024-11-29 14:30:45" or "11/29/2024 14:30:45"
-      DateTime lastUpdate;
+      // Split date and time
+      final parts = lastUpdateStr.trim().split(' ');
+      if (parts.length != 2) return false;
       
-      if (lastUpdateStr.contains('-')) {
-        // Format: "2024-11-29 14:30:45"
-        lastUpdate = DateTime.parse(lastUpdateStr);
-      } else {
-        // Format: "11/29/2024 14:30:45"
-        final parts = lastUpdateStr.split(' ');
-        final dateParts = parts[0].split('/');
-        final timeParts = parts[1].split(':');
-        
-        lastUpdate = DateTime(
-          int.parse(dateParts[2]), // year
-          int.parse(dateParts[0]), // month
-          int.parse(dateParts[1]), // day
-          int.parse(timeParts[0]), // hour
-          int.parse(timeParts[1]), // minute
-          int.parse(timeParts[2]), // second
-        );
-      }
+      final dateParts = parts[0].split('-');
+      final timeParts = parts[1].split(':');
+      
+      if (dateParts.length != 3 || timeParts.length != 3) return false;
+      
+      final lastUpdate = DateTime(
+        int.parse(dateParts[0]), // year
+        int.parse(dateParts[1]), // month
+        int.parse(dateParts[2]), // day
+        int.parse(timeParts[0]), // hour (works with or without leading zero)
+        int.parse(timeParts[1]), // minute
+        int.parse(timeParts[2]), // second
+      );
       
       final now = DateTime.now();
       final difference = now.difference(lastUpdate).inMinutes;
       
       return difference < 5; // Online if updated within 5 minutes
     } catch (e) {
-      debugPrint('Error parsing lastUpdate: $e');
+      debugPrint('Error parsing lastUpdate: $e - Value: $lastUpdateStr');
       return false;
     }
   }
