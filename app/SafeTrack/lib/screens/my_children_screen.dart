@@ -679,6 +679,20 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
       
       if (user == null) throw Exception('User not logged in');
 
+      // Check if device already exists
+      final deviceSnapshot = await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .get();
+
+      if (deviceSnapshot.exists) {
+        if (mounted) setState(() => _isLoading = false);
+        _showSnackBar('❌ Device already linked! This device code is already in use.', Colors.red);
+        return;
+      }
+
       // Save to Firebase with all fields including initialized deviceStatus
       await rtdbInstance
           .ref('linkedDevices')
