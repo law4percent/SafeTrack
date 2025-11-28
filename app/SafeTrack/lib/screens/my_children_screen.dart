@@ -552,7 +552,7 @@ class DeviceCard extends StatelessWidget {
                 Switch(
                   value: device.deviceEnabled,
                   onChanged: (value) => _toggleDeviceEnabled(context, value),
-                  activeColor: Colors.green,
+                  activeThumbColor: Colors.green,
                 ),
               ],
             ),
