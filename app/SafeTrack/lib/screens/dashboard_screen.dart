@@ -1,3 +1,5 @@
+// app/SafeTrack/lib/screens/dashboard_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
@@ -78,7 +80,13 @@ class DashboardScreenState extends State<DashboardScreen> {
         foregroundColor: Colors.white,
         elevation: 4,
       ),
-      body: _screens[_currentIndex],
+      body: Stack(
+        children: [
+          _screens[_currentIndex],
+          if (_currentIndex == 0) // Only show on Dashboard Home
+            const QuickActionsGrid(),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -154,35 +162,34 @@ class DashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600;
-    final isDesktop = screenWidth > 1024;
+      final screenWidth = MediaQuery.of(context).size.width;
+      final isTablet = screenWidth > 600;
+      final isDesktop = screenWidth > 1024;
 
-    return SingleChildScrollView(
-      child: Padding(
-        padding: EdgeInsets.all(isDesktop ? 24.0 : isTablet ? 20.0 : 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section: Monitoring Status
-            _buildMonitoringStatus(isTablet, isDesktop),
-            
-            SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
-            
-            // My Children Section
-            _buildMyChildrenSection(context, isTablet, isDesktop),
-            
-            SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
-            
-            SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 25.0),
-            
-            // Quick Actions Section
-            const QuickActionsGrid(), 
-          ],
+      return SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.all(isDesktop ? 24.0 : isTablet ? 20.0 : 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Section: Monitoring Status
+              _buildMonitoringStatus(isTablet, isDesktop),
+              
+              SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
+              
+              // My Children Section
+              _buildMyChildrenSection(context, isTablet, isDesktop),
+              
+              SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
+              
+              // REMOVED: SizedBox and QuickActionsGrid
+              // Add some bottom padding so content isn't hidden behind the floating button
+              SizedBox(height: 100),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   Widget _buildMonitoringStatus(bool isTablet, bool isDesktop) {
     return StreamBuilder<List<Map<String, dynamic>>>(
