@@ -153,7 +153,7 @@ class AuthService with ChangeNotifier {
 
   Future<void> addLinkedDevice({
     required String deviceId,
-    required String deviceName,
+    required String deviceName, // Can keep for backward compatibility
     String? childName,
     String? imageProfileBase64,
   }) async {
@@ -166,9 +166,11 @@ class AuthService with ChangeNotifier {
           .child('devices')
           .child(deviceId)
           .set({
-        'deviceName': deviceName,
         'childName': childName ?? 'Unknown',
         'imageProfileBase64': imageProfileBase64 ?? '',
+        'yearLevel': '',
+        'section': '',
+        'deviceEnabled': 'true',
         'addedAt': ServerValue.timestamp,
       });
     } catch (e) {

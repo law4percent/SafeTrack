@@ -10,23 +10,29 @@ final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
 
 class LinkedDevice {
   final String deviceCode;
-  final String deviceName;
   final String childName;
   final String? imageProfileBase64;
+  final String? yearLevel;
+  final String? section;
+  final bool deviceEnabled;
 
   LinkedDevice({
     required this.deviceCode,
-    required this.deviceName,
     required this.childName,
     this.imageProfileBase64,
+    this.yearLevel,
+    this.section,
+    this.deviceEnabled = true,
   });
 
   factory LinkedDevice.fromRTDB(String code, Map<dynamic, dynamic> data) {
     return LinkedDevice(
       deviceCode: code,
-      deviceName: data['deviceName']?.toString() ?? 'Device ${code.substring(0, 4)}',
       childName: data['childName']?.toString() ?? 'Unknown',
       imageProfileBase64: data['imageProfileBase64']?.toString(),
+      yearLevel: data['yearLevel']?.toString(),
+      section: data['section']?.toString(),
+      deviceEnabled: data['deviceEnabled']?.toString().toLowerCase() == 'true',
     );
   }
 }
@@ -261,7 +267,8 @@ class DeviceCard extends StatelessWidget {
 
   void _editDevice(BuildContext context, LinkedDevice device) async {
     final nameController = TextEditingController(text: device.childName);
-    final deviceNameController = TextEditingController(text: device.deviceName);
+    final yearLevelController = TextEditingController(text: device.yearLevel ?? '');
+    final sectionController = TextEditingController(text: device.section ?? '');
     String? updatedImageBase64 = device.imageProfileBase64;
 
     final result = await showDialog<bool>(
@@ -332,18 +339,29 @@ class DeviceCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   TextField(
-                    controller: deviceNameController,
+                    controller: nameController,
                     decoration: const InputDecoration(
-                      labelText: 'DEVICE NAME',
+                      labelText: 'CHILD NAME',
                       border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
-                    controller: nameController,
+                    controller: yearLevelController,
                     decoration: const InputDecoration(
-                      labelText: 'CHILD NAME',
+                      labelText: 'YEAR LEVEL',
                       border: OutlineInputBorder(),
+                      hintText: 'e.g., 8',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: sectionController,
+                    decoration: const InputDecoration(
+                      labelText: 'SECTION',
+                      border: OutlineInputBorder(),
+                      hintText: 'e.g., Diamond',
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -374,13 +392,15 @@ class DeviceCard extends StatelessWidget {
 
     if (result != true) {
       nameController.dispose();
-      deviceNameController.dispose();
+      yearLevelController.dispose();
+      sectionController.dispose();
       return;
     }
 
     if (!context.mounted) {
       nameController.dispose();
-      deviceNameController.dispose();
+      yearLevelController.dispose();
+      sectionController.dispose();
       return;
     }
 
@@ -390,11 +410,11 @@ class DeviceCard extends StatelessWidget {
       
       if (user == null) {
         nameController.dispose();
-        deviceNameController.dispose();
+        yearLevelController.dispose();
+        sectionController.dispose();
         return;
       }
 
-      // Update device information
       await rtdbInstance
           .ref('linkedDevices')
           .child(user.uid)
@@ -402,7 +422,8 @@ class DeviceCard extends StatelessWidget {
           .child(deviceCode)
           .update({
         'childName': nameController.text.trim(),
-        'deviceName': deviceNameController.text.trim(),
+        'yearLevel': yearLevelController.text.trim(),
+        'section': sectionController.text.trim(),
         'imageProfileBase64': updatedImageBase64 ?? '',
       });
 
@@ -419,7 +440,8 @@ class DeviceCard extends StatelessWidget {
       }
     } finally {
       nameController.dispose();
-      deviceNameController.dispose();
+      yearLevelController.dispose();
+      sectionController.dispose();
     }
   }
   
@@ -487,48 +509,116 @@ class DeviceCard extends StatelessWidget {
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ListTile(
-        leading: CircleAvatar(
-          radius: 28,
-          backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
-              ? MemoryImage(base64Decode(device.imageProfileBase64!))
-              : null,
-          child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
-              ? const Icon(Icons.person, size: 30)
-              : null,
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              device.childName,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      child: Column(
+        children: [
+          // Switch at the top
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: device.deviceEnabled ? Colors.green.shade50 : Colors.grey.shade100,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
             ),
-            Text(
-              device.deviceName,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  device.deviceEnabled ? 'Device Enabled' : 'Device Disabled',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: device.deviceEnabled ? Colors.green.shade700 : Colors.grey.shade600,
+                  ),
+                ),
+                Switch(
+                  value: device.deviceEnabled,
+                  onChanged: (value) => _toggleDeviceEnabled(context, value),
+                  activeColor: Colors.green,
+                ),
+              ],
             ),
-          ],
-        ),
-        subtitle: Text(
-          'ID: ${device.deviceCode}',
-          style: const TextStyle(fontSize: 10, color: Colors.grey),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 20),
-              onPressed: () => _editDevice(context, device),
+          ),
+          // Device info
+          ListTile(
+            leading: CircleAvatar(
+              radius: 28,
+              backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
+                  ? MemoryImage(base64Decode(device.imageProfileBase64!))
+                  : null,
+              child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
+                  ? const Icon(Icons.person, size: 30)
+                  : null,
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-              onPressed: () => _removeDevice(context),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  device.childName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                if (device.yearLevel != null && device.yearLevel!.isNotEmpty)
+                  Text(
+                    'Grade ${device.yearLevel}${device.section != null && device.section!.isNotEmpty ? " - ${device.section}" : ""}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+              ],
             ),
-          ],
-        ),
+            subtitle: Text(
+              'ID: ${device.deviceCode}',
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 20),
+                  onPressed: () => _editDevice(context, device),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  onPressed: () => _removeDevice(context),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  void _toggleDeviceEnabled(BuildContext context, bool value) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    
+    if (user == null) return;
+
+    try {
+      await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .update({
+        'deviceEnabled': value.toString(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(value ? 'Device enabled' : 'Device disabled'),
+            backgroundColor: value ? Colors.green : Colors.grey,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update device: $e')),
+        );
+      }
+    }
   }
 }
 
@@ -543,6 +633,8 @@ class AddDeviceDialog extends StatefulWidget {
 class AddDeviceDialogState extends State<AddDeviceDialog> {
   final _codeController = TextEditingController();
   final _nameController = TextEditingController();
+  final _yearLevelController = TextEditingController();
+  final _sectionController = TextEditingController();
   bool _isLoading = false;
   String? _imageBase64;
 
@@ -565,14 +657,16 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
 
   Future<void> _linkDevice() async {
     final deviceCode = _codeController.text.trim().toUpperCase();
-    final deviceName = _nameController.text.trim();
+    final childName = _nameController.text.trim();
+    final yearLevel = _yearLevelController.text.trim();
+    final section = _sectionController.text.trim();
 
     if (deviceCode.isEmpty) {
       _showSnackBar('Please enter device code', Colors.orange);
       return;
     }
 
-    if (deviceName.isEmpty) {
+    if (childName.isEmpty) {
       _showSnackBar('Please enter child name', Colors.orange);
       return;
     }
@@ -581,12 +675,33 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.addLinkedDevice(
-        deviceId: deviceCode,
-        deviceName: deviceCode,
-        childName: deviceName,
-        imageProfileBase64: _imageBase64,
-      );
+      final user = authService.currentUser;
+      
+      if (user == null) throw Exception('User not logged in');
+
+      // Save to Firebase with all fields including initialized deviceStatus
+      await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .set({
+        'childName': childName,
+        'yearLevel': yearLevel,
+        'section': section,
+        'imageProfileBase64': _imageBase64 ?? '',
+        'deviceEnabled': 'true',
+        'addedAt': ServerValue.timestamp,
+        'deviceStatus': {
+          'lastUpdate': 0,
+          'batteryLevel': 0,
+          'lastLocation': {
+            'latitude': 0,
+            'longitude': 0,
+            'altitude': 0,
+          }
+        }
+      });
 
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -680,6 +795,25 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
                   hintText: 'e.g., Juan',
                 ),
               ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _yearLevelController,
+                decoration: const InputDecoration(
+                  labelText: 'YEAR LEVEL',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., 8',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _sectionController,
+                decoration: const InputDecoration(
+                  labelText: 'SECTION',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., Diamond',
+                ),
+              ),
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -715,6 +849,8 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
   void dispose() {
     _codeController.dispose();
     _nameController.dispose();
+    _yearLevelController.dispose();
+    _sectionController.dispose();
     super.dispose();
   }
 }
