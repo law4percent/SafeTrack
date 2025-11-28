@@ -3,12 +3,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
-import 'dart:io';
+import 'dart:convert';
 import '../services/auth_service.dart';
 import '../widgets/quick_actions_grid.dart';
 import 'live_location_screen.dart';
 import 'my_children_screen.dart';
 import 'settings_screen.dart';
+import 'package:intl/intl.dart';
 
 // Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
@@ -141,13 +142,26 @@ class DashboardHome extends StatelessWidget {
         }
 
         if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
-          return const DashboardContent(childDeviceCodes: []);
+          return const DashboardContent(childDevices: []);
         }
 
         final devicesData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-        final List<String> childDeviceCodes = devicesData.keys.map((key) => key.toString()).toList();
+        
+        // Filter only enabled devices
+        final List<Map<String, dynamic>> childDevices = [];
+        devicesData.forEach((key, value) {
+          final deviceData = value as Map<dynamic, dynamic>;
+          final isEnabled = deviceData['deviceEnabled']?.toString() == 'true';
+          
+          if (isEnabled) {
+            childDevices.add({
+              'deviceCode': key.toString(),
+              'data': deviceData,
+            });
+          }
+        });
 
-        return DashboardContent(childDeviceCodes: childDeviceCodes);
+        return DashboardContent(childDevices: childDevices);
       },
     );
   }
@@ -157,8 +171,8 @@ class DashboardHome extends StatelessWidget {
 // --- DASHBOARD UI CONTENT ---
 // ---------------------------------------------
 class DashboardContent extends StatelessWidget {
-  final List<String> childDeviceCodes;
-  const DashboardContent({super.key, required this.childDeviceCodes});
+  final List<Map<String, dynamic>> childDevices;
+  const DashboardContent({super.key, required this.childDevices});
 
   @override
   Widget build(BuildContext context) {
@@ -182,7 +196,6 @@ class DashboardContent extends StatelessWidget {
               
               SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
               
-              // REMOVED: SizedBox and QuickActionsGrid
               // Add some bottom padding so content isn't hidden behind the floating button
               SizedBox(height: 100),
             ],
@@ -287,7 +300,7 @@ class DashboardContent extends StatelessWidget {
         ),
         SizedBox(height: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
 
-        if (childDeviceCodes.isEmpty)
+        if (childDevices.isEmpty)
           _buildEmptyState(isTablet, isDesktop)
         else
           _buildChildrenList(context, isTablet, isDesktop),
@@ -339,11 +352,12 @@ class DashboardContent extends StatelessWidget {
           crossAxisCount: 2,
           crossAxisSpacing: 16.0,
           mainAxisSpacing: 16.0,
-          childAspectRatio: 3.0,
+          childAspectRatio: 2.5,
         ),
-        itemCount: childDeviceCodes.length,
+        itemCount: childDevices.length,
         itemBuilder: (context, index) => ChildCard(
-          deviceCode: childDeviceCodes[index],
+          deviceCode: childDevices[index]['deviceCode'],
+          deviceData: childDevices[index]['data'],
           isTablet: isTablet,
           isDesktop: isDesktop,
         ),
@@ -359,21 +373,23 @@ class DashboardContent extends StatelessWidget {
             crossAxisCount: 2,
             crossAxisSpacing: 12.0,
             mainAxisSpacing: 12.0,
-            childAspectRatio: 3.5,
+            childAspectRatio: 3.0,
           ),
-          itemCount: childDeviceCodes.length,
+          itemCount: childDevices.length,
           itemBuilder: (context, index) => ChildCard(
-            deviceCode: childDeviceCodes[index],
+            deviceCode: childDevices[index]['deviceCode'],
+            deviceData: childDevices[index]['data'],
             isTablet: isTablet,
             isDesktop: isDesktop,
           ),
         );
       } else {
         return Column(
-          children: childDeviceCodes.map((code) => Padding(
+          children: childDevices.map((device) => Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: ChildCard(
-              deviceCode: code,
+              deviceCode: device['deviceCode'],
+              deviceData: device['data'],
               isTablet: isTablet,
               isDesktop: isDesktop,
             ),
@@ -382,10 +398,11 @@ class DashboardContent extends StatelessWidget {
       }
     } else {
       return Column(
-        children: childDeviceCodes.map((code) => Padding(
+        children: childDevices.map((device) => Padding(
           padding: const EdgeInsets.only(bottom: 10.0),
           child: ChildCard(
-            deviceCode: code,
+            deviceCode: device['deviceCode'],
+            deviceData: device['data'],
             isTablet: isTablet,
             isDesktop: isDesktop,
           ),
@@ -394,27 +411,24 @@ class DashboardContent extends StatelessWidget {
     }
   }
 
-
   Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() {
     return Stream.fromFuture(Future.wait(
-      childDeviceCodes.map((deviceCode) async {
-        try {
-          final rtdbSnapshot = await rtdbInstance.ref('children/$deviceCode').get();
-          if (rtdbSnapshot.exists) {
-            final data = rtdbSnapshot.value as Map<dynamic, dynamic>?;
-            return {
-              'deviceCode': deviceCode,
-              'sosActive': data?['sosActive'] == true,
-              'isOnline': data?['isOnline'] == true,
-            };
-          }
-        } catch (e) {
-          debugPrint('Error fetching status for $deviceCode: $e');
-        }
+      childDevices.map((device) async {
+        final deviceCode = device['deviceCode'];
+        final deviceData = device['data'];
+        final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+        
+        final sosActive = deviceStatus?['sos']?.toString() == 'true';
+        final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
+        
+        // Check if device is online (last update within 5 minutes)
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final isOnline = lastUpdate > 0 && (now - lastUpdate) < 300000; // 5 minutes
+        
         return {
           'deviceCode': deviceCode,
-          'sosActive': false,
-          'isOnline': false,
+          'sosActive': sosActive,
+          'isOnline': isOnline,
         };
       }),
     ));
@@ -426,15 +440,75 @@ class DashboardContent extends StatelessWidget {
 // ---------------------------------------------
 class ChildCard extends StatelessWidget {
   final String deviceCode;
+  final Map<dynamic, dynamic> deviceData;
   final bool isTablet;
   final bool isDesktop;
 
   const ChildCard({
     super.key, 
     required this.deviceCode,
+    required this.deviceData,
     required this.isTablet,
     required this.isDesktop,
   });
+
+  void _showDeviceInfo(BuildContext context) {
+    final addedAt = (deviceData['addedAt'] as num?)?.toInt();
+    final addedDate = addedAt != null 
+        ? DateFormat('MMM dd, yyyy - hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(addedAt))
+        : 'Unknown';
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Device Information'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildInfoRow('Device Code:', deviceCode),
+              SizedBox(height: 8),
+              _buildInfoRow('Added On:', addedDate),
+              SizedBox(height: 8),
+              _buildInfoRow('Status:', deviceData['deviceEnabled']?.toString() == 'true' ? 'Enabled' : 'Disabled'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(fontSize: 14),
+          ),
+        ),
+      ],
+    );
+  }
 
   void _showFullScreenImage(BuildContext context, String childName, ImageProvider? imageProvider) {
     if (imageProvider == null) return;
@@ -511,125 +585,75 @@ class ChildCard extends StatelessWidget {
     );
   }
 
-  ImageProvider? _getImageProvider(String? avatarPath) {
-    if (avatarPath != null && !avatarPath.startsWith('http')) {
-      final File localFile = File(avatarPath);
-      if (localFile.existsSync()) {
-        return FileImage(localFile);
+  ImageProvider? _getImageProvider(String? imageBase64) {
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
+      try {
+        final bytes = base64Decode(imageBase64);
+        return MemoryImage(bytes);
+      } catch (e) {
+        debugPrint('Error decoding base64 image: $e');
       }
-    } else if (avatarPath != null && avatarPath.startsWith('http')) {
-      return NetworkImage(avatarPath);
     }
     return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DatabaseEvent>(
-      stream: rtdbInstance.ref('linkedDevices').child(deviceCode).onValue,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return LinearProgressIndicator(
-            minHeight: isDesktop ? 8.0 : isTablet ? 6.0 : 4.0,
-          );
-        }
-        
-        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
-          return _buildErrorCard();
-        }
-        
-        final deviceData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-        final childName = deviceData['childName']?.toString() ?? deviceData['deviceName']?.toString() ?? 'Unknown Child';
-        final deviceName = deviceData['deviceName']?.toString() ?? 'Unknown Device';
-        
-        return StreamBuilder<DatabaseEvent>(
-          stream: rtdbInstance.ref('children/$deviceCode').onValue,
-          builder: (context, rtdbSnapshot) {
-            bool sosActive = false;
-            bool isOnline = false;
-            int batteryLevel = 0;
-            String? avatarPath;
-            String roomInfo = 'Device: $deviceName';
+    final childName = deviceData['childName']?.toString() ?? 'Unknown Child';
+    final yearLevel = deviceData['yearLevel']?.toString() ?? '';
+    final section = deviceData['section']?.toString() ?? '';
+    final imageBase64 = deviceData['imageProfileBase64']?.toString();
+    
+    final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+    final batteryLevel = (deviceStatus?['batteryLevel'] as num?)?.toInt() ?? 0;
+    final sosActive = deviceStatus?['sos']?.toString() == 'true';
+    final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
+    final lastLocation = deviceStatus?['lastLocation'] as Map<dynamic, dynamic>?;
+    
+    // Check if device is online (last update within 5 minutes)
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final isOnline = lastUpdate > 0 && (now - lastUpdate) < 300000; // 5 minutes
+    
+    // Build grade/section string
+    String gradeSection = '';
+    if (yearLevel.isNotEmpty) {
+      gradeSection = 'Grade $yearLevel';
+      if (section.isNotEmpty) {
+        gradeSection += ' - $section';
+      }
+    } else if (section.isNotEmpty) {
+      gradeSection = section;
+    }
+    
+    final ImageProvider? imageProvider = _getImageProvider(imageBase64);
+    final Color avatarBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.2); // final Color avatarBgColor = Theme.of(context).primaryColor.withAlpha(50);
 
-            if (rtdbSnapshot.hasData && rtdbSnapshot.data!.snapshot.value != null) {
-              final rtdbData = rtdbSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-              sosActive = rtdbData['sosActive'] == true;
-              isOnline = rtdbData['isOnline'] == true;
-              batteryLevel = (rtdbData['batteryLevel'] as num?)?.toInt() ?? 0;
-              avatarPath = rtdbData['avatarUrl']?.toString();
-              
-              final childGrade = rtdbData['grade']?.toString().trim();
-              final childSection = rtdbData['section']?.toString().trim();
-              
-              if (childGrade?.isNotEmpty == true || childSection?.isNotEmpty == true) {
-                roomInfo = '';
-                if (childGrade?.isNotEmpty == true) {
-                  roomInfo += childGrade!;
-                }
-                if (childSection?.isNotEmpty == true) {
-                  roomInfo += (roomInfo.isNotEmpty ? ' - ' : '') + childSection!;
-                }
-              }
-            }
-            
-            final ImageProvider? imageProvider = _getImageProvider(avatarPath);
-            final Color avatarBgColor = Theme.of(context).primaryColor.withAlpha(50);
-
-            return _buildChildCard(
-              context,
-              childName,
-              roomInfo,
-              sosActive,
-              isOnline,
-              batteryLevel,
-              imageProvider,
-              avatarBgColor,
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildErrorCard() {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: CircleAvatar(
-          child: Icon(
-            Icons.person_off,
-            size: isDesktop ? 28.0 : isTablet ? 24.0 : 20.0,
-          ),
-        ),
-        title: Text(
-          'Device ${deviceCode.substring(0, 4)}...',
-          style: TextStyle(
-            fontSize: isDesktop ? 16.0 : isTablet ? 15.0 : 14.0,
-          ),
-        ),
-        subtitle: Text(
-          'Device data not found.',
-          style: TextStyle(
-            fontSize: isDesktop ? 14.0 : isTablet ? 13.0 : 12.0,
-          ),
-        ),
-      ),
+    return _buildChildCard(
+      context,
+      childName,
+      gradeSection,
+      sosActive,
+      isOnline,
+      batteryLevel,
+      lastLocation,
+      imageProvider,
+      avatarBgColor,
     );
   }
 
   Widget _buildChildCard(
     BuildContext context,
     String childName,
-    String roomInfo,
+    String gradeSection,
     bool sosActive,
     bool isOnline,
     int batteryLevel,
+    Map<dynamic, dynamic>? lastLocation,
     ImageProvider? imageProvider,
     Color avatarBgColor,
   ) {
     final avatarSize = isDesktop ? 56.0 : isTablet ? 48.0 : 40.0;
-    final iconSize = isDesktop ? 24.0 : isTablet ? 20.0 : 16.0;
+    final iconSize = isDesktop ? 20.0 : isTablet ? 18.0 : 16.0;
     final fontSizeTitle = isDesktop ? 18.0 : isTablet ? 16.0 : 14.0;
     final fontSizeSubtitle = isDesktop ? 14.0 : isTablet ? 13.0 : 12.0;
 
@@ -639,164 +663,200 @@ class ChildCard extends StatelessWidget {
       color: sosActive ? Colors.red.shade50 : null,
       child: Stack(
         children: [
-          Padding(
-            padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => _showFullScreenImage(context, childName, imageProvider),
-                  child: CircleAvatar(
-                    radius: avatarSize,
-                    backgroundColor: sosActive ? const Color.fromRGBO(255, 0, 0, 0.4) : avatarBgColor,
-                    backgroundImage: imageProvider, 
-                    child: imageProvider == null 
-                        ? Icon(
-                            sosActive ? Icons.warning : Icons.person, 
-                            size: avatarSize * 0.6,
-                            color: sosActive ? Colors.white : Colors.blueGrey,
-                          ) 
-                        : sosActive 
-                            ? Container(
-                                decoration: const BoxDecoration(
-                                  color: Color.fromRGBO(255, 0, 0, 0.7),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(Icons.warning, color: Colors.white, size: iconSize),
-                              )
-                            : null,
-                  ),
-                ),
-                
-                SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
-                
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        childName,
-                        style: TextStyle(
-                          fontSize: fontSizeTitle,
-                          fontWeight: sosActive ? FontWeight.bold : FontWeight.normal,
-                          color: sosActive ? Colors.red : Colors.black,
+          Container(
+            decoration: sosActive ? BoxDecoration(
+              border: Border.all(color: Colors.red, width: 3),
+              borderRadius: BorderRadius.circular(12),
+            ) : null,
+            child: Padding(
+              padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => _showFullScreenImage(context, childName, imageProvider),
+                    child: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: avatarSize,
+                          backgroundColor: sosActive ? Colors.red.withValues(alpha: 0.3) : avatarBgColor,
+                          backgroundImage: imageProvider,
+                          child: imageProvider == null 
+                              ? Icon(
+                                  sosActive ? Icons.warning : Icons.person, 
+                                  size: avatarSize * 0.6,
+                                  color: sosActive ? Colors.red : Colors.blueGrey,
+                                ) 
+                              : null,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: isDesktop ? 8.0 : isTablet ? 6.0 : 4.0),
-                      Text(
-                        roomInfo,
-                        style: TextStyle(
-                          fontSize: fontSizeSubtitle,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      SizedBox(height: isDesktop ? 8.0 : isTablet ? 6.0 : 4.0),
-                      _buildStatusInfo(sosActive, isOnline, batteryLevel, fontSizeSubtitle),
-                    ],
-                  ),
-                ),
-                
-                _buildStatusChip(sosActive, batteryLevel, fontSizeSubtitle),
-              ],
-            ),
-          ),
-          
-          if (sosActive)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.red,
-                      width: 2,
+                        if (sosActive && imageProvider != null)
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.3),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.warning, 
+                                color: Colors.white, 
+                                size: avatarSize * 0.5
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
+                  
+                  SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+                  
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                childName,
+                                style: TextStyle(
+                                  fontSize: fontSizeTitle,
+                                  fontWeight: sosActive ? FontWeight.bold : FontWeight.w600,
+                                  color: sosActive ? Colors.red : Colors.black87,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.info_outline, size: iconSize, color: Colors.blue),
+                              onPressed: () => _showDeviceInfo(context),
+                              padding: EdgeInsets.zero,
+                              constraints: BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                        
+                        if (gradeSection.isNotEmpty) ...[
+                          SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.school, size: iconSize, color: Colors.grey[600]),
+                              SizedBox(width: 4),
+                              Text(
+                                gradeSection,
+                                style: TextStyle(
+                                  fontSize: fontSizeSubtitle,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        
+                        SizedBox(height: 6),
+                        
+                        // Status Row
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              color: isOnline ? Colors.green : Colors.grey,
+                              size: iconSize * 0.7,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              isOnline ? 'Active' : 'Offline',
+                              style: TextStyle(
+                                color: isOnline ? Colors.green : Colors.grey,
+                                fontSize: fontSizeSubtitle,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        SizedBox(height: 4),
+                        
+                        // Battery Level
+                        if (batteryLevel > 0)
+                          Row(
+                            children: [
+                              Icon(
+                                batteryLevel > 80 ? Icons.battery_full :
+                                batteryLevel > 50 ? Icons.battery_std :
+                                batteryLevel > 20 ? Icons.battery_charging_full :
+                                Icons.battery_alert,
+                                size: iconSize,
+                                color: batteryLevel < 20 ? Colors.red : Colors.grey[600],
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                '$batteryLevel%',
+                                style: TextStyle(
+                                  fontSize: fontSizeSubtitle,
+                                  color: batteryLevel < 20 ? Colors.red : Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        
+                        SizedBox(height: 4),
+                        
+                        // Location Info
+                        if (lastLocation != null)
+                          Row(
+                            children: [
+                              Icon(Icons.location_on, size: iconSize, color: Colors.blue),
+                              SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Lat: ${lastLocation['latitude']?.toStringAsFixed(4) ?? '0.0000'}, '
+                                  'Lon: ${lastLocation['longitude']?.toStringAsFixed(4) ?? '0.0000'}',
+                                  style: TextStyle(
+                                    fontSize: fontSizeSubtitle * 0.9,
+                                    color: Colors.grey[600],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Status Chip
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isDesktop ? 16 : isTablet ? 12 : 10,
+                          vertical: isDesktop ? 8 : isTablet ? 6 : 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: sosActive ? Colors.red : Colors.green,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          sosActive ? 'SOS' : 'SAFE',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: fontSizeSubtitle,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatusInfo(bool sosActive, bool isOnline, int batteryLevel, double fontSize) {
-    if (sosActive) {
-      return Row(
-        children: [
-          Icon(Icons.warning, color: Colors.red, size: fontSize),
-          SizedBox(width: 4),
-          Text(
-            'SOS EMERGENCY!',
-            style: TextStyle(
-              color: Colors.red,
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      );
-    } else {
-      return Row(
-        children: [
-          Icon(
-            Icons.circle,
-            color: isOnline ? Colors.green : Colors.red,
-            size: fontSize * 0.8,
-          ),
-          SizedBox(width: 4),
-          Text(
-            isOnline ? 'Online' : 'Offline',
-            style: TextStyle(
-              color: isOnline ? Colors.green : Colors.red,
-              fontSize: fontSize,
-            ),
-          ),
-          if (batteryLevel > 0) ...[
-            SizedBox(width: 12),
-            Icon(Icons.battery_std, color: Colors.grey, size: fontSize),
-            SizedBox(width: 2),
-            Text(
-              '$batteryLevel%',
-              style: TextStyle(
-                fontSize: fontSize,
-                color: batteryLevel < 20 ? Colors.red : Colors.grey,
-              ),
-            ),
-          ],
-        ],
-      );
-    }
-  }
-
-  Widget _buildStatusChip(bool sosActive, int batteryLevel, double fontSize) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Chip(
-          label: Text(
-            sosActive ? 'EMERGENCY' : 'Safe',
-            style: TextStyle(
-              color: Colors.white, 
-              fontWeight: FontWeight.bold,
-              fontSize: fontSize * 0.9,
-            ),
-          ),
-          backgroundColor: sosActive ? Colors.red : Colors.green,
-        ),
-        if (!sosActive && batteryLevel > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 4.0),
-            child: Text(
-              '$batteryLevel%',
-              style: TextStyle(
-                fontSize: fontSize * 0.8,
-                color: batteryLevel < 20 ? Colors.red : Colors.grey,
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
