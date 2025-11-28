@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
@@ -268,7 +267,7 @@ class DeviceCard extends StatelessWidget {
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => Dialog(
+        builder: (statefulContext, setState) => Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             padding: const EdgeInsets.all(24),
@@ -352,14 +351,14 @@ class DeviceCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context, false),
+                          onPressed: () => Navigator.pop(statefulContext, false),
                           child: const Text('CANCEL'),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => Navigator.pop(context, true),
+                          onPressed: () => Navigator.pop(statefulContext, true),
                           child: const Text('SAVE'),
                         ),
                       ),
@@ -373,12 +372,27 @@ class DeviceCard extends StatelessWidget {
       ),
     );
 
-    if (result != true) return;
+    if (result != true) {
+      nameController.dispose();
+      deviceNameController.dispose();
+      return;
+    }
+
+    if (!context.mounted) {
+      nameController.dispose();
+      deviceNameController.dispose();
+      return;
+    }
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final user = authService.currentUser;
-      if (user == null) return;
+      
+      if (user == null) {
+        nameController.dispose();
+        deviceNameController.dispose();
+        return;
+      }
 
       // Update device information
       await rtdbInstance
@@ -408,7 +422,7 @@ class DeviceCard extends StatelessWidget {
       deviceNameController.dispose();
     }
   }
-
+  
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<AuthService>(context, listen: false).currentUser;
@@ -531,7 +545,6 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
   final _nameController = TextEditingController();
   bool _isLoading = false;
   String? _imageBase64;
-  File? _imageFile;
 
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
@@ -546,7 +559,6 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
       final bytes = await image.readAsBytes();
       setState(() {
         _imageBase64 = base64Encode(bytes);
-        _imageFile = File(image.path);
       });
     }
   }
