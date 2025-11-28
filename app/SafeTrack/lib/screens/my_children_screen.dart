@@ -260,41 +260,6 @@ class DeviceCard extends StatelessWidget {
     }
   }
 
-  void _changeProfileImage(BuildContext context, String deviceCode) async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-
-    if (image == null) return;
-
-    try {
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
-
-      final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.updateLinkedDeviceImage(
-        deviceId: deviceCode,
-        imageProfileBase64: base64Image,
-      );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile image updated successfully')),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update image: $e')),
-        );
-      }
-    }
-  }
-
   void _editDevice(BuildContext context, LinkedDevice device) async {
     final nameController = TextEditingController(text: device.childName);
     final deviceNameController = TextEditingController(text: device.deviceName);
@@ -509,34 +474,14 @@ class DeviceCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
-        leading: GestureDetector(
-          onTap: () => _changeProfileImage(context, deviceCode),
-          child: Stack(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
-                    ? MemoryImage(base64Decode(device.imageProfileBase64!))
-                    : null,
-                child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
-                    ? const Icon(Icons.person, size: 30)
-                    : null,
-              ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: const Icon(Icons.camera_alt, size: 12, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
+        leading: CircleAvatar(
+          radius: 28,
+          backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
+              ? MemoryImage(base64Decode(device.imageProfileBase64!))
+              : null,
+          child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
+              ? const Icon(Icons.person, size: 30)
+              : null,
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
