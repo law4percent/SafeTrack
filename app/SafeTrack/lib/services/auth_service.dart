@@ -170,7 +170,6 @@ class AuthService with ChangeNotifier {
         'childName': childName ?? 'Unknown',
         'imageProfileBase64': imageProfileBase64 ?? '',
         'addedAt': ServerValue.timestamp,
-        'status': 'active',
       });
     } catch (e) {
       rethrow;
