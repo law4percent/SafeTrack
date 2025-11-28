@@ -232,7 +232,7 @@ class DeviceCard extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove Device?'),
-        content: const Text('Are you sure you want to remove this device?'),
+        content: const Text('Are you sure you want to remove this device? This will unlink it from your account.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -249,11 +249,28 @@ class DeviceCard extends StatelessWidget {
     if (confirmed != true) return;
 
     try {
-      await authService.removeLinkedDevice(deviceCode);
+      final user = authService.currentUser;
+      if (user == null) return;
+
+      // STEP 1: Remove from linkedDevices
+      await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .remove();
+
+      // STEP 2: Unclaim device in realDevices (clear actionOwnerID)
+      await rtdbInstance
+          .ref('realDevices')
+          .child(deviceCode)
+          .update({
+        'actionOwnerID': '',
+      });
       
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device removed successfully')),
+          const SnackBar(content: Text('Device removed and unclaimed successfully')),
         );
       }
     } catch (e) {
@@ -655,70 +672,218 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
     }
   }
 
-  Future<void> _linkDevice() async {
-    final deviceCode = _codeController.text.trim().toUpperCase();
-    final childName = _nameController.text.trim();
-    final yearLevel = _yearLevelController.text.trim();
-    final section = _sectionController.text.trim();
+Future<void> _linkDevice() async {
+  final deviceCode = _codeController.text.trim().toUpperCase();
+  final childName = _nameController.text.trim();
+  final yearLevel = _yearLevelController.text.trim();
+  final section = _sectionController.text.trim();
 
-    if (deviceCode.isEmpty) {
-      _showSnackBar('Please enter device code', Colors.orange);
-      return;
-    }
-
-    if (childName.isEmpty) {
-      _showSnackBar('Please enter child name', Colors.orange);
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final user = authService.currentUser;
-      
-      if (user == null) throw Exception('User not logged in');
-
-      // Check if device already exists
-      final deviceSnapshot = await rtdbInstance
-          .ref('linkedDevices')
-          .child(user.uid)
-          .child('devices')
-          .child(deviceCode)
-          .get();
-
-      if (deviceSnapshot.exists) {
-        if (mounted) setState(() => _isLoading = false);
-        _showSnackBar('❌ Device already linked! This device code is already in use.', Colors.red);
-        return;
-      }
-
-      // Save to Firebase with all fields including initialized deviceStatus
-      await rtdbInstance
-          .ref('linkedDevices')
-          .child(user.uid)
-          .child('devices')
-          .child(deviceCode)
-          .set({
-        'childName': childName,
-        'yearLevel': yearLevel,
-        'section': section,
-        'imageProfileBase64': _imageBase64 ?? '',
-        'deviceEnabled': 'true',
-        'addedAt': ServerValue.timestamp
-      });
-
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      _showSnackBar('✅ Successfully linked device: $deviceCode', Colors.green);
-
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      _showSnackBar('❌ Failed to link device: ${e.toString()}', Colors.red);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+  if (deviceCode.isEmpty) {
+    _showSnackBar('Please enter device code', Colors.orange);
+    return;
   }
+
+  if (childName.isEmpty) {
+    _showSnackBar('Please enter child name', Colors.orange);
+    return;
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    
+    if (user == null) throw Exception('User not logged in');
+
+    // STEP 1: Check if device exists in realDevices
+    final realDeviceSnapshot = await rtdbInstance
+        .ref('realDevices')
+        .child(deviceCode)
+        .get();
+
+    if (!realDeviceSnapshot.exists) {
+      if (mounted) setState(() => _isLoading = false);
+      
+      // Show detailed error dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Device Not Found'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'The device code "$deviceCode" does not exist in the system.',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                const Text('Please verify:'),
+                const SizedBox(height: 8),
+                const Text('✓ Device code is typed correctly'),
+                const Text('✓ Device is registered in the system'),
+                const Text('✓ No extra spaces in the code'),
+                const Text('✓ Code matches exactly what\'s on the device'),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Contact support if you believe this device should exist.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
+    // STEP 2: Check if device is already claimed
+    final realDeviceData = realDeviceSnapshot.value as Map<dynamic, dynamic>;
+    final actionOwnerID = realDeviceData['actionOwnerID']?.toString() ?? '';
+
+    if (actionOwnerID.isNotEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.block, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Device Already Claimed'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Device "$deviceCode" is already linked to another account.',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'The current owner must unlink this device before you can use it.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
+    // STEP 3: Check if current user already has this device linked
+    final userDeviceSnapshot = await rtdbInstance
+        .ref('linkedDevices')
+        .child(user.uid)
+        .child('devices')
+        .child(deviceCode)
+        .get();
+
+    if (userDeviceSnapshot.exists) {
+      if (mounted) setState(() => _isLoading = false);
+      _showSnackBar('❌ Device already linked to your account!', Colors.red);
+      return;
+    }
+
+    // STEP 4: Claim the device by updating realDevices
+    await rtdbInstance
+        .ref('realDevices')
+        .child(deviceCode)
+        .update({
+      'actionOwnerID': user.uid,
+    });
+
+    // STEP 5: Add device to user's linkedDevices
+    await rtdbInstance
+        .ref('linkedDevices')
+        .child(user.uid)
+        .child('devices')
+        .child(deviceCode)
+        .set({
+      'childName': childName,
+      'yearLevel': yearLevel,
+      'section': section,
+      'imageProfileBase64': _imageBase64 ?? '',
+      'deviceEnabled': 'true',
+      'addedAt': ServerValue.timestamp,
+      'deviceStatus': {
+        'lastUpdate': 0,
+        'batteryLevel': 0,
+        'lastLocation': {
+          'latitude': 0,
+          'longitude': 0,
+          'altitude': 0,
+        },
+        'sos': 'false'
+      }
+    });
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    _showSnackBar('✅ Successfully linked device: $deviceCode', Colors.green);
+
+  } catch (e) {
+    if (mounted) setState(() => _isLoading = false);
+    _showSnackBar('❌ Failed to link device: ${e.toString()}', Colors.red);
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
 
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
