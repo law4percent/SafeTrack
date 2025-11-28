@@ -705,16 +705,7 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
         'section': section,
         'imageProfileBase64': _imageBase64 ?? '',
         'deviceEnabled': 'true',
-        'addedAt': ServerValue.timestamp,
-        'deviceStatus': {
-          'lastUpdate': 0,
-          'batteryLevel': 0,
-          'lastLocation': {
-            'latitude': 0,
-            'longitude': 0,
-            'altitude': 0,
-          }
-        }
+        'addedAt': ServerValue.timestamp
       });
 
       if (!mounted) return;
