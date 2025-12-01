@@ -1,4 +1,4 @@
-name: protectid
+name: safetrack
 description: "Child Safety Monitoring System."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -52,6 +52,8 @@ dependencies:
   http: ^1.1.0
 
 dev_dependencies:
+  # flutter_launcher_name: ^0.0.2
+  flutter_launcher_icons: ^0.14.1
   flutter_test:
     sdk: flutter
 
@@ -103,3 +105,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# flutter_launcher_name:
+#   name: "SafeTrack"
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"

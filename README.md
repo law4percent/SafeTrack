@@ -11,6 +11,7 @@ A comprehensive Flutter-based child safety monitoring application that provides 
 - [Environment Configuration](#-environment-configuration)
 - [Running the App](#-running-the-app)
 - [APK Convertion](#%EF%B8%8F-apk-convertion)
+- [Change APP Icon](#-change-app-icon)
 - [Project Structure](#-project-structure)
 - [Documentation](#-documentation)
 - [Troubleshooting](#-troubleshooting)
@@ -188,6 +189,27 @@ flutter build apk --release
 **Will generate**
 ```bash
 build/app/outputs/flutter-apk/app-release.apk
+```
+
+## 📌 Change APP Icon
+
+**Add this to `pubspec.yaml`**
+```bash
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.1
+```
+
+```bash
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+```
+
+**Run the command**
+```bash
+flutter pub get
+flutter pub run flutter_launcher_icons:main
 ```
 
 ## 📁 Project Structure

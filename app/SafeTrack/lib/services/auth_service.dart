@@ -1,3 +1,4 @@
+// app/SafeTrack/lib/services/auth_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
@@ -89,7 +90,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // ADD THIS NEW METHOD:
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -154,8 +154,9 @@ class AuthService with ChangeNotifier {
 
   Future<void> addLinkedDevice({
     required String deviceId,
-    required String deviceName,
+    required String deviceName, // Can keep for backward compatibility
     String? childName,
+    String? imageProfileBase64,
   }) async {
     if (_auth.currentUser == null) throw Exception('User not logged in');
     
@@ -166,10 +167,32 @@ class AuthService with ChangeNotifier {
           .child('devices')
           .child(deviceId)
           .set({
-        'deviceName': deviceName,
         'childName': childName ?? 'Unknown',
+        'imageProfileBase64': imageProfileBase64 ?? '',
+        'yearLevel': '',
+        'section': '',
+        'deviceEnabled': 'true',
         'addedAt': ServerValue.timestamp,
-        'status': 'active',
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> updateLinkedDeviceImage({
+    required String deviceId,
+    required String imageProfileBase64,
+  }) async {
+    if (_auth.currentUser == null) throw Exception('User not logged in');
+    
+    try {
+      await _database
+          .child('linkedDevices')
+          .child(_auth.currentUser!.uid)
+          .child('devices')
+          .child(deviceId)
+          .update({
+        'imageProfileBase64': imageProfileBase64,
       });
     } catch (e) {
       rethrow;
