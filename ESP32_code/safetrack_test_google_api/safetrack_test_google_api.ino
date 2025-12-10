@@ -11,7 +11,8 @@
 #define PIN_TX      17
 #define PIN_RX      16
 #define PWR_PIN     4
-#define LED_PIN     27
+#define RED_PIN     27  // Red LED for error/unauthorized
+#define GRN_PIN     26  // Green LED for success
 
 // ==================== SERIAL CONFIGURATION ====================
 HardwareSerial SerialAT(1);
@@ -19,9 +20,15 @@ HardwareSerial SerialAT(1);
 
 // ==================== FIREBASE CONFIGURATION ====================
 String firebaseURL = "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app";
+String deviceCode = "DEVICE1234";  // YOUR DEVICE CODE - Change this to match your device
 
 // ==================== GOOGLE GEOLOCATION API ====================
 const char googleApiKey[] = "AIzaSyB8U54lwyosieENXqSH2Oul_EWZukpDfUA";
+
+// ==================== DEVICE AUTHENTICATION ====================
+String userUid = "";      // Will be fetched from Firebase
+String deviceUid = "";    // Will be fetched from Firebase
+bool isAuthorized = false;
 
 // ==================== NETWORK CREDENTIALS ====================
 const char apn[] = "http.globe.com.ph";
@@ -40,20 +47,25 @@ String locationType = "unknown";
 // ==================== FUNCTION PROTOTYPES ====================
 bool checkNetworkConnection();
 void connectNetwork();
+bool authenticateDevice();
 void sendToFirebase(float lat, float lon, String locType, float acc);
 bool getLocationFromIP();
 bool getLocationFromGoogleAPI();
 String sendATCommand(String cmd, unsigned long timeout);
+void blinkRed();
+void blinkGreen();
 
 // ==================== SETUP ====================
 void setup() {
   SerialMon.begin(115200);
   delay(300);
-  SerialMon.println("\n\n=== SIM7600 Network Location Tracker ===");
-  SerialMon.println("Cell Tower + IP Location");
+  SerialMon.println("\n\n=== SIM7600 SafeTrack Device ===");
+  SerialMon.println("Device Code: " + deviceCode);
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GRN_PIN, OUTPUT);
+  digitalWrite(RED_PIN, LOW);
+  digitalWrite(GRN_PIN, LOW);
 
   // Power on SIM7600 module
   pinMode(PWR_PIN, OUTPUT);
@@ -79,11 +91,39 @@ void setup() {
   connectNetwork();
 
   delay(2000);
-  SerialMon.println("\n✅ Setup Complete! Starting location tests...\n");
+  
+  // Authenticate device with Firebase
+  SerialMon.println("\n🔐 Authenticating Device...");
+  if (authenticateDevice()) {
+    SerialMon.println("✅ Device Authorized!");
+    SerialMon.println("   User UID: " + userUid);
+    SerialMon.println("   Device UID: " + deviceUid);
+    isAuthorized = true;
+    blinkGreen();
+  } else {
+    SerialMon.println("❌ Device Not Authorized!");
+    SerialMon.println("   Please assign device in Firebase");
+    isAuthorized = false;
+    
+    // Blink red LED continuously and halt
+    while (true) {
+      blinkRed();
+      delay(1000);
+    }
+  }
+
+  SerialMon.println("\n✅ Setup Complete! Starting location tracking...\n");
 }
 
 // ==================== MAIN LOOP ====================
 void loop() {
+  // Check if device is authorized
+  if (!isAuthorized) {
+    blinkRed();
+    delay(1000);
+    return;
+  }
+
   SerialMon.println("\n========================================");
   SerialMon.println("=== LOCATION ACQUISITION ATTEMPT ===");
   SerialMon.println("========================================\n");
@@ -129,15 +169,11 @@ void loop() {
 
     sendToFirebase(latitude, longitude, locationType, accuracy);
 
-    // Blink LED to indicate success
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(LED_PIN, LOW);
-      delay(200);
-      digitalWrite(LED_PIN, HIGH);
-      delay(200);
-    }
+    // Blink green LED to indicate success
+    blinkGreen();
   } else {
     SerialMon.println("\n❌ All location methods failed!");
+    blinkRed();
   }
 
   SerialMon.println("\n⏱️  Waiting 30 seconds before next update...\n");
@@ -173,6 +209,140 @@ void connectNetwork() {
     String ip = modem.getLocalIP();
     SerialMon.println("📱 IP Address: " + ip);
   }
+}
+
+// ==================== DEVICE AUTHENTICATION ====================
+
+bool authenticateDevice() {
+  SerialMon.println("Checking device authorization in Firebase...");
+  SerialMon.println("Looking for deviceCode: " + deviceCode);
+  
+  // Get realDevices list from Firebase
+  String url = firebaseURL + "/realDevices.json";
+  
+  sendATCommand("AT+HTTPTERM", 500);
+  delay(300);
+  
+  if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) {
+    SerialMon.println("✗ HTTP init failed");
+    return false;
+  }
+  
+  sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
+  sendATCommand("AT+HTTPPARA=\"URL\",\"" + url + "\"", 2000);
+  
+  SerialMon.println("Executing GET request...");
+  SerialAT.println("AT+HTTPACTION=0");
+  
+  delay(1000);
+  
+  // Wait for response
+  String actionResp = "";
+  unsigned long timeout = millis() + 20000;
+  bool success = false;
+  
+  while (millis() < timeout) {
+    while (SerialAT.available()) {
+      String line = SerialAT.readStringUntil('\n');
+      line.trim();
+      
+      if (line.indexOf("+HTTPACTION: 0,200") != -1) {
+        success = true;
+        SerialMon.println("✓ HTTP 200 OK");
+        break;
+      }
+    }
+    if (success) break;
+    delay(10);
+  }
+  
+  if (!success) {
+    SerialMon.println("✗ Failed to get device list");
+    sendATCommand("AT+HTTPTERM", 1000);
+    return false;
+  }
+  
+  delay(1000);
+  while (SerialAT.available()) SerialAT.read();
+  
+  // Read response
+  SerialMon.println("Reading device data...");
+  SerialAT.println("AT+HTTPREAD=0,4096");
+  
+  String httpData = "";
+  timeout = millis() + 10000;
+  
+  while (millis() < timeout) {
+    while (SerialAT.available()) {
+      httpData += (char)SerialAT.read();
+    }
+    if (httpData.indexOf("+HTTPREAD: 0") != -1) break;
+  }
+  
+  sendATCommand("AT+HTTPTERM", 1000);
+  
+  SerialMon.println("Parsing device data...");
+  
+  // Extract JSON
+  int jsonStart = httpData.indexOf("{");
+  int jsonEnd = httpData.lastIndexOf("}");
+  
+  if (jsonStart == -1 || jsonEnd == -1) {
+    SerialMon.println("✗ No JSON data found");
+    return false;
+  }
+  
+  String jsonData = httpData.substring(jsonStart, jsonEnd + 1);
+  
+  // Parse JSON to find our device
+  StaticJsonDocument<2048> doc;
+  DeserializationError error = deserializeJson(doc, jsonData);
+  
+  if (error) {
+    SerialMon.print("✗ JSON parse error: ");
+    SerialMon.println(error.c_str());
+    return false;
+  }
+  
+  // Search for device with matching deviceCode
+  JsonObject devices = doc.as<JsonObject>();
+  
+  for (JsonPair deviceEntry : devices) {
+    String currentDeviceUid = deviceEntry.key().c_str();
+    JsonObject device = deviceEntry.value().as<JsonObject>();
+    
+    if (device.containsKey("deviceCode")) {
+      String currentDeviceCode = device["deviceCode"].as<String>();
+      
+      if (currentDeviceCode == deviceCode) {
+        // Found matching device!
+        deviceUid = currentDeviceUid;
+        
+        // Check if it has an owner
+        if (device.containsKey("actionOwnerID")) {
+          String ownerId = device["actionOwnerID"].as<String>();
+          
+          if (ownerId.length() > 0 && ownerId != "null" && ownerId != "") {
+            userUid = ownerId;
+            SerialMon.println("✓ Device found and authorized!");
+            SerialMon.println("  Device UID: " + deviceUid);
+            SerialMon.println("  Owner UID: " + userUid);
+            return true;
+          } else {
+            SerialMon.println("✗ Device found but no owner assigned");
+            SerialMon.println("  actionOwnerID is empty");
+            return false;
+          }
+        } else {
+          SerialMon.println("✗ Device found but no actionOwnerID field");
+          return false;
+        }
+      }
+    }
+  }
+  
+  SerialMon.println("✗ Device code not found in Firebase");
+  return false;
 }
 
 // ==================== HELPER FUNCTION ====================
