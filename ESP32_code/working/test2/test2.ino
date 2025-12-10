@@ -1,47 +1,47 @@
-RESULT
+// RESULT
 
-Waiting for command echo...
-AT+HTTPREAD
+// Waiting for command echo...
+// AT+HTTPREAD
 
-ERROR
+// ERROR
 
-✗ Modem returned ERROR on AT+HTTPREAD
-Debug: Echo response was: AT+HTTPREAD
+// ✗ Modem returned ERROR on AT+HTTPREAD
+// Debug: Echo response was: AT+HTTPREAD
 
-ERROR
+// ERROR
 
-Possible causes:
-  1. HTTP session may have timed out
-  2. No data available to read
-  3. Modem state issue
+// Possible causes:
+//   1. HTTP session may have timed out
+//   2. No data available to read
+//   3. Modem state issue
 
-Trying alternative approach with AT+HTTPREAD=0,1024
-AT+HTTPREAD=0,1024
+// Trying alternative approach with AT+HTTPREAD=0,1024
+// AT+HTTPREAD=0,1024
 
-OK
+// OK
 
-+HTTPREAD: DATA,149
-{"status":"success","country":"Philippines","regionName":"Eastern Visayas","city":"Ormoc City","lat":11.0027,"lon":124.6083,"query":"180.190.51.203"}
-+HTTPREAD: 0
+// +HTTPREAD: DATA,149
+// {"status":"success","country":"Philippines","regionName":"Eastern Visayas","city":"Ormoc City","lat":11.0027,"lon":124.6083,"query":"180.190.51.203"}
+// +HTTPREAD: 0
 
 
-Alternative read result:
-✓ Found JSON via alternative method!
-{"status":"success","country":"Philippines","regionName":"Eastern Visayas","city":"Ormoc City","lat":11.0027,"lon":124.6083,"query":"180.190.51.203"}
+// Alternative read result:
+// ✓ Found JSON via alternative method!
+// {"status":"success","country":"Philippines","regionName":"Eastern Visayas","city":"Ormoc City","lat":11.0027,"lon":124.6083,"query":"180.190.51.203"}
 
-Step 9: Parsing location data...
-✓ Latitude: 11.002700
-✓ Longitude: 124.608299
-✓ City: Ormoc City
-✓ Country: Philippines
+// Step 9: Parsing location data...
+// ✓ Latitude: 11.002700
+// ✓ Longitude: 124.608299
+// ✓ City: Ormoc City
+// ✓ Country: Philippines
 
-✅ Location acquired successfully!
+// ✅ Location acquired successfully!
 
-📊 Location Summary:
-  Type: ip
-  Latitude: 11.002700
-  Longitude: 124.608299
-  Accuracy: ~5000 meters
+// 📊 Location Summary:
+//   Type: ip
+//   Latitude: 11.002700
+//   Longitude: 124.608299
+//   Accuracy: ~5000 meters
 
 
 
