@@ -365,6 +365,26 @@ String sendATCommand(String cmd, unsigned long timeout) {
   return response;
 }
 
+// ==================== LED FUNCTIONS ====================
+
+void blinkRed() {
+  digitalWrite(RED_PIN, HIGH);
+  digitalWrite(GRN_PIN, LOW);
+  delay(200);
+  digitalWrite(RED_PIN, LOW);
+  delay(200);
+}
+
+void blinkGreen() {
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(GRN_PIN, HIGH);
+    digitalWrite(RED_PIN, LOW);
+    delay(200);
+    digitalWrite(GRN_PIN, LOW);
+    delay(200);
+  }
+}
+
 // ==================== GOOGLE API LOCATION FUNCTION ====================
 
 bool getLocationFromGoogleAPI() {
@@ -709,6 +729,12 @@ void sendToFirebase(float lat, float lon, String locType, float acc) {
     return;
   }
 
+  // Build dynamic Firebase path: /deviceLogs/{userUid}/{deviceUid}
+  String firebasePath = firebaseURL + "/deviceLogs/" + userUid + "/" + deviceUid + ".json";
+  
+  SerialMon.println("\n📤 Sending to Firebase...");
+  SerialMon.println("Path: /deviceLogs/" + userUid + "/" + deviceUid);
+
   String payload = "{";
   payload += "\"latitude\":" + String(lat, 6) + ",";
   payload += "\"longitude\":" + String(lon, 6) + ",";
@@ -717,14 +743,12 @@ void sendToFirebase(float lat, float lon, String locType, float acc) {
   payload += "\"timestamp\":{\".sv\":\"timestamp\"}";
   payload += "}";
 
-  SerialMon.println("\n📤 Sending to Firebase...");
-
   sendATCommand("AT+HTTPTERM", 500);
   delay(300);
   
   sendATCommand("AT+HTTPINIT", 1000);
   sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
-  sendATCommand("AT+HTTPPARA=\"URL\",\"" + firebaseURL + "/data_logs.json\"", 1000);
+  sendATCommand("AT+HTTPPARA=\"URL\",\"" + firebasePath + "\"", 1000);
   sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
 
   SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
@@ -743,7 +767,14 @@ void sendToFirebase(float lat, float lon, String locType, float acc) {
     SerialMon.println("✓ Payload sent");
   }
 
-  sendATCommand("AT+HTTPACTION=1", 15000);
+  String actionResp = sendATCommand("AT+HTTPACTION=1", 15000);
+  
+  if (actionResp.indexOf("+HTTPACTION: 1,200") != -1) {
+    SerialMon.println("✅ Firebase POST successful!");
+  } else {
+    SerialMon.println("⚠️ Firebase POST may have failed");
+  }
+  
   sendATCommand("AT+HTTPTERM", 500);
-  SerialMon.println("✅ Firebase complete\n");
+  SerialMon.println("📊 Firebase transmission complete\n");
 }
