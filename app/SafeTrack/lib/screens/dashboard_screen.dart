@@ -10,6 +10,7 @@ import 'live_location_screen.dart';
 import 'my_children_screen.dart';
 import 'settings_screen.dart';
 import 'package:intl/intl.dart';
+import 'activity_log_screen.dart';
 
 // Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
@@ -671,11 +672,8 @@ class ChildCard extends StatelessWidget {
     final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
     final batteryLevel = (deviceStatus?['batteryLevel'] as num?)?.toInt() ?? 0;
     final sosActive = deviceStatus?['sos']?.toString() == 'true';
-    // final lastUpdate = (deviceStatus?['lastUpdate'] as num?)?.toInt() ?? 0;
     final lastLocation = deviceStatus?['lastLocation'] as Map<dynamic, dynamic>?;
     
-    // Check if device is online (last update within 5 minutes)
-    // final now = DateTime.now().millisecondsSinceEpoch;
     final lastUpdateStr = deviceStatus?['lastUpdate']?.toString() ?? '';
     final isOnline = _isDeviceOnline(lastUpdateStr);
     
@@ -691,7 +689,7 @@ class ChildCard extends StatelessWidget {
     }
     
     final ImageProvider? imageProvider = _getImageProvider(imageBase64);
-    final Color avatarBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.2); // final Color avatarBgColor = Theme.of(context).primaryColor.withAlpha(50);
+    final Color avatarBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.2);
 
     return _buildChildCard(
       context,
@@ -726,201 +724,233 @@ class ChildCard extends StatelessWidget {
       elevation: sosActive ? 8 : 2,
       margin: EdgeInsets.only(bottom: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
       color: sosActive ? Colors.red.shade50 : null,
-      child: Stack(
-        children: [
-          Container(
-            decoration: sosActive ? BoxDecoration(
-              border: Border.all(color: Colors.red, width: 3),
-              borderRadius: BorderRadius.circular(12),
-            ) : null,
-            child: Padding(
-              padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => _showFullScreenImage(context, childName, imageProvider),
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: avatarSize,
-                          backgroundColor: sosActive ? Colors.red.withValues(alpha: 0.3) : avatarBgColor,
-                          backgroundImage: imageProvider,
-                          child: imageProvider == null 
-                              ? Icon(
-                                  sosActive ? Icons.warning : Icons.person, 
-                                  size: avatarSize * 0.6,
-                                  color: sosActive ? Colors.red : Colors.blueGrey,
-                                ) 
-                              : null,
-                        ),
-                        if (sosActive && imageProvider != null)
-                          Positioned.fill(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.red.withValues(alpha: 0.3),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.warning, 
-                                color: Colors.white, 
-                                size: avatarSize * 0.5
-                              ),
-                            ),
+      child: InkWell(
+        onTap: () {
+          // Navigate to Activity Log for this specific device
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ActivityLogScreen(
+                deviceCode: deviceCode,
+                childName: childName,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          children: [
+            Container(
+              decoration: sosActive ? BoxDecoration(
+                border: Border.all(color: Colors.red, width: 3),
+                borderRadius: BorderRadius.circular(12),
+              ) : null,
+              child: Padding(
+                padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _showFullScreenImage(context, childName, imageProvider),
+                      child: Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: avatarSize,
+                            backgroundColor: sosActive ? Colors.red.withValues(alpha: 0.3) : avatarBgColor,
+                            backgroundImage: imageProvider,
+                            child: imageProvider == null 
+                                ? Icon(
+                                    sosActive ? Icons.warning : Icons.person, 
+                                    size: avatarSize * 0.6,
+                                    color: sosActive ? Colors.red : Colors.blueGrey,
+                                  ) 
+                                : null,
                           ),
-                      ],
-                    ),
-                  ),
-                  
-                  SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
-                  
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                childName,
-                                style: TextStyle(
-                                  fontSize: fontSizeTitle,
-                                  fontWeight: sosActive ? FontWeight.bold : FontWeight.w600,
-                                  color: sosActive ? Colors.red : Colors.black87,
+                          if (sosActive && imageProvider != null)
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.3),
+                                  shape: BoxShape.circle,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            IconButton(
-                              icon: Icon(Icons.info_outline, size: iconSize, color: Colors.blue),
-                              onPressed: () => _showDeviceInfo(context),
-                              padding: EdgeInsets.zero,
-                              constraints: BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                        
-                        if (gradeSection.isNotEmpty) ...[
-                          SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(Icons.school, size: iconSize, color: Colors.grey[600]),
-                              SizedBox(width: 4),
-                              Text(
-                                gradeSection,
-                                style: TextStyle(
-                                  fontSize: fontSizeSubtitle,
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w500,
+                                child: Icon(
+                                  Icons.warning, 
+                                  color: Colors.white, 
+                                  size: avatarSize * 0.5
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
                         ],
-                        
-                        SizedBox(height: 6),
-                        
-                        // Status Row
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.circle,
-                              color: isOnline ? Colors.green : Colors.grey,
-                              size: iconSize * 0.7,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              isOnline ? 'Active' : 'Offline',
-                              style: TextStyle(
-                                color: isOnline ? Colors.green : Colors.grey,
-                                fontSize: fontSizeSubtitle,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                        
-                        SizedBox(height: 4),
-                        
-                        // Battery Level
-                        if (batteryLevel > 0)
+                      ),
+                    ),
+                    
+                    SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+                    
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Row(
                             children: [
-                              Icon(
-                                batteryLevel > 80 ? Icons.battery_full :
-                                batteryLevel > 50 ? Icons.battery_std :
-                                batteryLevel > 20 ? Icons.battery_charging_full :
-                                Icons.battery_alert,
-                                size: iconSize,
-                                color: batteryLevel < 20 ? Colors.red : Colors.grey[600],
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                '$batteryLevel%',
-                                style: TextStyle(
-                                  fontSize: fontSizeSubtitle,
-                                  color: batteryLevel < 20 ? Colors.red : Colors.grey[700],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        
-                        SizedBox(height: 4),
-                        
-                        // Location Info
-                        if (lastLocation != null)
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: iconSize, color: Colors.blue),
-                              SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  'Lat: ${lastLocation['latitude']?.toStringAsFixed(4) ?? '0.0000'}, '
-                                  'Lon: ${lastLocation['longitude']?.toStringAsFixed(4) ?? '0.0000'}',
+                                  childName,
                                   style: TextStyle(
-                                    fontSize: fontSizeSubtitle * 0.9,
-                                    color: Colors.grey[600],
+                                    fontSize: fontSizeTitle,
+                                    fontWeight: sosActive ? FontWeight.bold : FontWeight.w600,
+                                    color: sosActive ? Colors.red : Colors.black87,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              IconButton(
+                                icon: Icon(Icons.info_outline, size: iconSize, color: Colors.blue),
+                                onPressed: () => _showDeviceInfo(context),
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(),
+                              ),
                             ],
                           ),
-                      ],
+                          
+                          if (gradeSection.isNotEmpty) ...[
+                            SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(Icons.school, size: iconSize, color: Colors.grey[600]),
+                                SizedBox(width: 4),
+                                Text(
+                                  gradeSection,
+                                  style: TextStyle(
+                                    fontSize: fontSizeSubtitle,
+                                    color: Colors.grey[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          
+                          SizedBox(height: 6),
+                          
+                          // Status Row
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.circle,
+                                color: isOnline ? Colors.green : Colors.grey,
+                                size: iconSize * 0.7,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                isOnline ? 'Active' : 'Offline',
+                                style: TextStyle(
+                                  color: isOnline ? Colors.green : Colors.grey,
+                                  fontSize: fontSizeSubtitle,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          
+                          SizedBox(height: 4),
+                          
+                          // Battery Level
+                          if (batteryLevel > 0)
+                            Row(
+                              children: [
+                                Icon(
+                                  batteryLevel > 80 ? Icons.battery_full :
+                                  batteryLevel > 50 ? Icons.battery_std :
+                                  batteryLevel > 20 ? Icons.battery_charging_full :
+                                  Icons.battery_alert,
+                                  size: iconSize,
+                                  color: batteryLevel < 20 ? Colors.red : Colors.grey[600],
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  '$batteryLevel%',
+                                  style: TextStyle(
+                                    fontSize: fontSizeSubtitle,
+                                    color: batteryLevel < 20 ? Colors.red : Colors.grey[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          
+                          SizedBox(height: 4),
+                          
+                          // Location Info
+                          if (lastLocation != null)
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: iconSize, color: Colors.blue),
+                                SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    'Lat: ${lastLocation['latitude']?.toStringAsFixed(4) ?? '0.0000'}, '
+                                    'Lon: ${lastLocation['longitude']?.toStringAsFixed(4) ?? '0.0000'}',
+                                    style: TextStyle(
+                                      fontSize: fontSizeSubtitle * 0.9,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          
+                          // Tap hint
+                          SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(Icons.touch_app, size: iconSize * 0.8, color: Colors.blue[300]),
+                              SizedBox(width: 4),
+                              Text(
+                                'Tap to view activity log',
+                                style: TextStyle(
+                                  fontSize: fontSizeSubtitle * 0.85,
+                                  color: Colors.blue[300],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  
-                  // Status Chip
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isDesktop ? 16 : isTablet ? 12 : 10,
-                          vertical: isDesktop ? 8 : isTablet ? 6 : 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: sosActive ? Colors.red : Colors.green,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          sosActive ? 'SOS' : 'SAFE',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: fontSizeSubtitle,
+                    
+                    // Status Chip
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 16 : isTablet ? 12 : 10,
+                            vertical: isDesktop ? 8 : isTablet ? 6 : 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: sosActive ? Colors.red : Colors.green,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            sosActive ? 'SOS' : 'SAFE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: fontSizeSubtitle,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
