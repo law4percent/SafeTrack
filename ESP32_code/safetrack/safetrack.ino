@@ -1,5 +1,5 @@
 /*
- * SafeTrack Device - Complete Implementation
+ * SafeTrack Device - Production Version v2.2
  * Features: GPS Tracking, SOS Button, Battery Monitoring, Device Status
  * Hardware: ESP32 + SIM7600 + MAX17043
  */
@@ -15,16 +15,15 @@
 
 // ==================== PIN DEFINITIONS ====================
 #define UART_BAUD   115200
-#define PIN_TX      17      // SIM7600 TX
-#define PIN_RX      16      // SIM7600 RX
-#define PWR_PIN     4       // SIM7600 Power
-#define RED_PIN     27      // Red LED
-#define GRN_PIN     26      // Green LED
-#define SOS_BTN     18      // SOS Button (pullup)
-#define SDA_PIN     21      // MAX17043 SDA
-#define SCL_PIN     22      // MAX17043 SCL
+#define PIN_TX      17
+#define PIN_RX      16
+#define PWR_PIN     4
+#define RED_PIN     27
+#define GRN_PIN     26
+#define SOS_BTN     18
+#define SDA_PIN     21
+#define SCL_PIN     22
 
-// MAX17043 I2C Address
 #define MAX17043_ADDR 0x36
 
 // ==================== SERIAL CONFIGURATION ====================
@@ -33,7 +32,7 @@ HardwareSerial SerialAT(1);
 
 // ==================== FIREBASE CONFIGURATION ====================
 String firebaseURL = "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app";
-String deviceCode = "DEVICE1234";  // YOUR DEVICE CODE - Change this!
+String deviceCode = "DEVICE1234";
 
 // ==================== DEVICE AUTHENTICATION ====================
 String userUid = "";
@@ -54,6 +53,12 @@ float longitude = 0.0;
 float altitude = 0.0;
 float speed_kph = 0.0;
 int heading = 0;
+bool gpsAvailable = false;
+
+float cachedLatitude = 0.0;
+float cachedLongitude = 0.0;
+float cachedAltitude = 0.0;
+bool hasCachedLocation = false;
 
 // ==================== BATTERY & SOS VARIABLES ====================
 float batteryPercent = 0.0;
@@ -66,10 +71,10 @@ bool sosButtonPressed = false;
 // ==================== TIMING VARIABLES ====================
 unsigned long lastLocationUpdate = 0;
 unsigned long lastHeartbeat = 0;
-const unsigned long LOCATION_INTERVAL = 30000;  // 30 seconds
-const unsigned long HEARTBEAT_INTERVAL = 60000; // 60 seconds
-const unsigned long SOS_TIMEOUT = 60000;        // 1 minute
-const unsigned long SOS_PRESS_DURATION = 5000;  // 5 seconds
+const unsigned long LOCATION_INTERVAL = 30000;
+const unsigned long HEARTBEAT_INTERVAL = 60000;
+const unsigned long SOS_TIMEOUT = 60000;
+const unsigned long SOS_PRESS_DURATION = 5000;
 
 // ==================== FUNCTION PROTOTYPES ====================
 bool checkNetworkConnection();
@@ -92,32 +97,22 @@ void showNoInternet();
 void setup() {
   SerialMon.begin(115200);
   delay(300);
-  SerialMon.println("\n\n╔════════════════════════════════════╗");
-  SerialMon.println("║   SafeTrack Device v2.0           ║");
-  SerialMon.println("║   Complete Implementation         ║");
-  SerialMon.println("╚════════════════════════════════════╝");
+  SerialMon.println("\n=== SafeTrack Device v2.2 ===");
   SerialMon.println("Device Code: " + deviceCode);
 
-  // Initialize LEDs
   pinMode(RED_PIN, OUTPUT);
   pinMode(GRN_PIN, OUTPUT);
   digitalWrite(RED_PIN, LOW);
   digitalWrite(GRN_PIN, LOW);
 
-  // Initialize SOS Button
   pinMode(SOS_BTN, INPUT_PULLUP);
 
-  // Initialize I2C for MAX17043
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(100);
-  SerialMon.println("✓ I2C initialized for battery monitoring");
 
-  // Test battery sensor
   readBatteryLevel();
-  SerialMon.printf("Initial Battery: %.1f%% (%.2fV)\n", batteryPercent, batteryVoltage);
+  SerialMon.printf("Battery: %.1f%% (%.2fV)\n", batteryPercent, batteryVoltage);
 
-  // Power on SIM7600 module
-  SerialMon.println("\n⚡ Powering on SIM7600...");
   pinMode(PWR_PIN, OUTPUT);
   digitalWrite(PWR_PIN, HIGH);
   delay(300);
@@ -130,163 +125,150 @@ void setup() {
   blinkBoth();
   
   if (!modem.restart()) {
-    SerialMon.println("⚠️ Failed to restart modem, continuing...");
+    SerialMon.println("⚠️ Modem restart failed");
   }
 
-  String modemInfo = modem.getModemInfo();
-  SerialMon.println("Modem Info: " + modemInfo);
-
-  SerialMon.println("\n📡 Establishing Network Connection...");
+  SerialMon.println("Modem: " + modem.getModemInfo());
+  SerialMon.println("Connecting to network...");
+  
   if (!checkNetworkConnection()) {
-    SerialMon.println("🚫 Network not registered. Attempting full connect...");
+    SerialMon.println("Network not registered");
   }
   connectNetwork();
 
   delay(2000);
   
-  // Authenticate device with Firebase
-  SerialMon.println("\n🔐 Authenticating Device...");
+  SerialMon.println("Authenticating device...");
   blinkBoth();
   
   if (authenticateDevice()) {
-    SerialMon.println("✅ Device Authorized!");
-    SerialMon.println("   User UID: " + userUid);
-    SerialMon.println("   Device UID: " + deviceUid);
+    SerialMon.println("✅ Authorized");
+    SerialMon.println("User: " + userUid);
+    SerialMon.println("Device: " + deviceUid);
     isAuthorized = true;
     blinkGreen(3);
   } else {
-    SerialMon.println("❌ Device Not Authorized!");
-    SerialMon.println("   Please assign device in Firebase");
+    SerialMon.println("❌ Not Authorized");
     isAuthorized = false;
-    
-    // Blink red LED continuously and halt
     while (true) {
       blinkRed();
       delay(1000);
     }
   }
 
-  // Enable GPS
-  SerialMon.println("\n🛰️ Enabling GPS...");
+  SerialMon.println("Enabling GPS...");
   modem.enableGPS();
   delay(2000);
 
-  SerialMon.println("\n✅ Setup Complete! Starting operation...\n");
+  SerialMon.println("✅ Setup Complete\n");
 }
 
 // ==================== MAIN LOOP ====================
 void loop() {
-  // Check if device is authorized
   if (!isAuthorized) {
     blinkRed();
     delay(1000);
     return;
   }
 
-  // Check SOS button
   checkSOSButton();
 
-  // Check if SOS timeout (1 minute)
   if (sosActive && (millis() - sosStartTime > SOS_TIMEOUT)) {
-    SerialMon.println("⏱️ SOS timeout - deactivating");
+    SerialMon.println("SOS timeout");
     sosActive = false;
     updateDeviceStatus();
   }
 
-  // Read battery level
   readBatteryLevel();
   
-  // Show low battery warning if needed
   if (batteryPercent < 20.0) {
     showLowBattery();
   }
 
-  // Check GPRS connection
   if (!modem.isGprsConnected()) {
-    SerialMon.println("🔴 GPRS disconnected. Reconnecting...");
+    SerialMon.println("GPRS disconnected, reconnecting...");
     showNoInternet();
     connectNetwork();
     delay(2000);
   }
 
-  // Location update interval (30 seconds) or immediate if SOS
   if (sosActive || (millis() - lastLocationUpdate >= LOCATION_INTERVAL)) {
-    SerialMon.println("\n========================================");
-    SerialMon.println("=== LOCATION ACQUISITION ===");
-    SerialMon.println("========================================\n");
+    SerialMon.println("\n=== Location Update ===");
 
-    // Try to get GPS location
     if (modem.getGPS(&latitude, &longitude, &altitude, &speed_kph, &heading)) {
-      SerialMon.println("✅ GPS Data Acquired:");
-      SerialMon.printf("  Latitude: %.8f\n", latitude);
-      SerialMon.printf("  Longitude: %.8f\n", longitude);
-      SerialMon.printf("  Altitude: %.2f m\n", altitude);
-      SerialMon.printf("  Speed: %.2f km/h\n", speed_kph);
-      SerialMon.printf("  Heading: %d°\n", heading);
-      SerialMon.printf("  Battery: %.1f%%\n", batteryPercent);
+      gpsAvailable = true;
+      
+      SerialMon.printf("GPS: %.6f, %.6f\n", latitude, longitude);
+      SerialMon.printf("Alt: %.1fm, Speed: %.1fkm/h\n", altitude, speed_kph);
+      
+      cachedLatitude = latitude;
+      cachedLongitude = longitude;
+      cachedAltitude = altitude;
+      hasCachedLocation = true;
       
       blinkGreen();
-      
-      // Send to Firebase
       sendLocationToFirebase();
-      
-      // Update device status (lastLocation, battery, etc.)
-      updateDeviceStatus();
-      
       lastLocationUpdate = millis();
       
     } else {
-      SerialMon.println("⚠️ GPS data not available");
+      gpsAvailable = false;
+      SerialMon.println("GPS unavailable");
       blinkRed();
-      // Don't update lastLocationUpdate on failure to retry sooner
+      
+      if (sosActive && hasCachedLocation) {
+        SerialMon.println("SOS: Using cached location");
+        latitude = cachedLatitude;
+        longitude = cachedLongitude;
+        altitude = cachedAltitude;
+        sendLocationToFirebase();
+      }
+      
+      lastLocationUpdate = millis();
     }
+    
+    updateDeviceStatus();
   }
 
-  // Heartbeat update (every 60 seconds)
   if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
     sendHeartbeat();
     lastHeartbeat = millis();
   }
 
-  delay(100); // Small delay for button debouncing
+  delay(100);
 }
 
 // ==================== NETWORK FUNCTIONS ====================
 
 bool checkNetworkConnection() {
   int state = modem.getRegistrationStatus();
-  if (state == 1 || state == 5) {
-    SerialMon.println("📶 Network registered.");
-    return true;
-  } else {
-    SerialMon.printf("🚫 Network not registered (Status: %d)\n", state);
-    return false;
-  }
+  return (state == 1 || state == 5);
 }
 
 void connectNetwork() {
-  SerialMon.print("Connecting to APN: ");
-  SerialMon.println(apn);
+  SerialMon.println("Connecting to: " + String(apn));
 
   if (modem.isGprsConnected()) {
-    SerialMon.println("GPRS already connected.");
+    SerialMon.println("Already connected");
     return;
   }
   
   if (!modem.gprsConnect(apn, user, pass)) {
-    SerialMon.println("❌ Failed to connect GPRS!");
+    SerialMon.println("❌ GPRS failed");
     showNoInternet();
   } else {
-    SerialMon.println("✅ GPRS connected!");
-    String ip = modem.getLocalIP();
-    SerialMon.println("📱 IP Address: " + ip);
+    SerialMon.println("✅ GPRS connected");
+    SerialMon.println("IP: " + modem.getLocalIP());
   }
 }
 
 // ==================== DEVICE AUTHENTICATION ====================
 
 bool authenticateDevice() {
-  SerialMon.println("Checking device authorization in Firebase...");
+  if (!modem.isGprsConnected()) {
+    connectNetwork();
+    delay(2000);
+    if (!modem.isGprsConnected()) return false;
+  }
   
   String url = firebaseURL + "/realDevices.json";
   
@@ -294,7 +276,6 @@ bool authenticateDevice() {
   delay(300);
   
   if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) {
-    SerialMon.println("✗ HTTP init failed");
     return false;
   }
   
@@ -323,7 +304,6 @@ bool authenticateDevice() {
   }
   
   if (!success) {
-    SerialMon.println("✗ Failed to get device list");
     sendATCommand("AT+HTTPTERM", 1000);
     return false;
   }
@@ -348,21 +328,14 @@ bool authenticateDevice() {
   int jsonStart = httpData.indexOf("{");
   int jsonEnd = httpData.lastIndexOf("}");
   
-  if (jsonStart == -1 || jsonEnd == -1) {
-    SerialMon.println("✗ No JSON data found");
-    return false;
-  }
+  if (jsonStart == -1 || jsonEnd == -1) return false;
   
   String jsonData = httpData.substring(jsonStart, jsonEnd + 1);
   
   StaticJsonDocument<2048> doc;
   DeserializationError error = deserializeJson(doc, jsonData);
   
-  if (error) {
-    SerialMon.print("✗ JSON parse error: ");
-    SerialMon.println(error.c_str());
-    return false;
-  }
+  if (error) return false;
   
   JsonObject devices = doc.as<JsonObject>();
   
@@ -396,46 +369,30 @@ bool authenticateDevice() {
 void checkSOSButton() {
   bool buttonState = digitalRead(SOS_BTN);
   
-  // Button is pressed (LOW because of pullup)
   if (buttonState == LOW) {
     if (!sosButtonPressed) {
-      // Button just pressed
       sosButtonPressed = true;
       sosButtonPressStart = millis();
-      SerialMon.println("🔴 SOS Button pressed...");
+      SerialMon.println("SOS button pressed...");
     } else {
-      // Button held - check if 5 seconds elapsed
       unsigned long pressDuration = millis() - sosButtonPressStart;
       if (pressDuration >= SOS_PRESS_DURATION && !sosActive) {
-        // Activate SOS!
         sosActive = true;
         sosStartTime = millis();
-        SerialMon.println("🚨 SOS ACTIVATED!");
+        SerialMon.println("🚨 SOS ACTIVATED");
         
-        // Send immediate location update
         if (modem.getGPS(&latitude, &longitude, &altitude, &speed_kph, &heading)) {
           sendLocationToFirebase();
         }
         
-        // Update device status with SOS flag
         updateDeviceStatus();
-        
-        // Visual feedback
         showSOSActive();
       }
     }
   } else {
-    // Button released
-    if (sosButtonPressed) {
-      unsigned long pressDuration = millis() - sosButtonPressStart;
-      if (pressDuration < SOS_PRESS_DURATION) {
-        SerialMon.println("⚠️ SOS Button released too early (< 5s)");
-      }
-      sosButtonPressed = false;
-    }
+    sosButtonPressed = false;
   }
   
-  // Show SOS active status
   if (sosActive) {
     showSOSActive();
   }
@@ -445,7 +402,7 @@ void checkSOSButton() {
 
 void readBatteryLevel() {
   Wire.beginTransmission(MAX17043_ADDR);
-  Wire.write(0x04); // SOC register
+  Wire.write(0x04);
   Wire.endTransmission(false);
   
   Wire.requestFrom(MAX17043_ADDR, 2);
@@ -455,9 +412,8 @@ void readBatteryLevel() {
     batteryPercent = msb + (lsb / 256.0);
   }
   
-  // Read voltage
   Wire.beginTransmission(MAX17043_ADDR);
-  Wire.write(0x02); // VCELL register
+  Wire.write(0x02);
   Wire.endTransmission(false);
   
   Wire.requestFrom(MAX17043_ADDR, 2);
@@ -465,7 +421,7 @@ void readBatteryLevel() {
     uint8_t msb = Wire.read();
     uint8_t lsb = Wire.read();
     uint16_t vcell = (msb << 8) | lsb;
-    batteryVoltage = (vcell >> 4) * 1.25 / 1000.0; // Convert to volts
+    batteryVoltage = (vcell >> 4) * 1.25 / 1000.0;
   }
 }
 
@@ -473,14 +429,18 @@ void readBatteryLevel() {
 
 void sendLocationToFirebase() {
   if (!modem.isGprsConnected()) {
-    SerialMon.println("❌ GPRS not connected");
     blinkRed(2);
+    return;
+  }
+  
+  if (latitude == 0.0 && longitude == 0.0) {
+    SerialMon.println("Skipping: Invalid GPS");
     return;
   }
 
   String firebasePath = firebaseURL + "/deviceLogs/" + userUid + "/" + deviceUid + ".json";
   
-  SerialMon.println("\n📤 Sending location to Firebase...");
+  SerialMon.println("Sending location...");
 
   String payload = "{";
   payload += "\"latitude\":" + String(latitude, 8) + ",";
@@ -515,10 +475,10 @@ void sendLocationToFirebase() {
   String actionResp = sendATCommand("AT+HTTPACTION=1", 15000);
   
   if (actionResp.indexOf("+HTTPACTION: 1,200") != -1) {
-    SerialMon.println("✅ Location sent to Firebase!");
+    SerialMon.println("✅ Location sent");
     blinkGreen(2);
   } else {
-    SerialMon.println("⚠️ Firebase POST failed");
+    SerialMon.println("⚠️ Send failed");
     blinkRed(2);
   }
   
@@ -530,29 +490,51 @@ void updateDeviceStatus() {
 
   String statusPath = firebaseURL + "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus.json";
   
-  SerialMon.println("\n📊 Updating device status...");
+  SerialMon.println("Updating status...");
+
+  // Use 0 as default, cached location if available, or current GPS if available
+  int locLat = 0;
+  int locLon = 0;
+  int locAlt = 0;
+  
+  if (hasCachedLocation) {
+    locLat = (int)cachedLatitude;
+    locLon = (int)cachedLongitude;
+    locAlt = (int)cachedAltitude;
+  }
+  
+  if (gpsAvailable) {
+    locLat = (int)latitude;
+    locLon = (int)longitude;
+    locAlt = (int)altitude;
+  }
 
   String payload = "{";
   payload += "\"batteryLevel\":" + String(batteryPercent, 1) + ",";
+  payload += "\"gpsAvailable\":" + String(gpsAvailable ? "true" : "false") + ",";
   payload += "\"lastLocation\":{";
-  payload += "\"latitude\":" + String(latitude, 8) + ",";
-  payload += "\"longitude\":" + String(longitude, 8) + ",";
-  payload += "\"altitude\":" + String(altitude, 2);
+  payload += "\"latitude\":" + String(locLat) + ",";
+  payload += "\"longitude\":" + String(locLon) + ",";
+  payload += "\"altitude\":" + String(locAlt);
   payload += "},";
   payload += "\"lastUpdate\":{\".sv\":\"timestamp\"},";
   payload += "\"sos\":" + String(sosActive ? "true" : "false");
   payload += "}";
 
   sendATCommand("AT+HTTPTERM", 500);
-  delay(300);
+  delay(500);
   
-  sendATCommand("AT+HTTPINIT", 1000);
+  if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) return;
+  
   sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
+  delay(200);
   sendATCommand("AT+HTTPPARA=\"URL\",\"" + statusPath + "\"", 1000);
+  delay(200);
   sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
+  delay(200);
 
   SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
-  delay(500);
+  delay(1000);
   
   String resp = "";
   unsigned long start = millis();
@@ -564,13 +546,38 @@ void updateDeviceStatus() {
   if (resp.indexOf("DOWNLOAD") != -1) {
     SerialAT.print(payload);
     delay(1000);
+  } else {
+    sendATCommand("AT+HTTPTERM", 500);
+    return;
   }
 
-  // Use PATCH to update
-  SerialAT.println("AT+HTTPACTION=3"); // PATCH method
-  delay(5000);
+  SerialAT.println("AT+HTTPACTION=2");  // PUT method to replace data
+  delay(500);
   
-  SerialMon.println("✅ Device status updated");
+  String actionResp = "";
+  unsigned long timeout = millis() + 20000;
+  bool success = false;
+  
+  while (millis() < timeout) {
+    while (SerialAT.available()) {
+      String line = SerialAT.readStringUntil('\n');
+      line.trim();
+      
+      if (line.indexOf("+HTTPACTION: 2,200") != -1) {
+        success = true;
+        break;
+      }
+    }
+    if (success) break;
+    delay(100);
+  }
+  
+  if (success) {
+    SerialMon.println("✅ Status updated");
+  } else {
+    SerialMon.println("❌ Status update failed");
+  }
+  
   sendATCommand("AT+HTTPTERM", 500);
 }
 
@@ -579,20 +586,24 @@ void sendHeartbeat() {
 
   String heartbeatPath = firebaseURL + "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus/lastUpdate.json";
   
-  SerialMon.println("\n💓 Sending heartbeat...");
+  SerialMon.println("Sending heartbeat...");
 
   String payload = "{\".sv\":\"timestamp\"}";
 
   sendATCommand("AT+HTTPTERM", 500);
-  delay(300);
+  delay(500);
   
-  sendATCommand("AT+HTTPINIT", 1000);
+  if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) return;
+  
   sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
+  delay(200);
   sendATCommand("AT+HTTPPARA=\"URL\",\"" + heartbeatPath + "\"", 1000);
+  delay(200);
   sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
+  delay(200);
 
   SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
-  delay(500);
+  delay(1000);
   
   String resp = "";
   unsigned long start = millis();
@@ -604,10 +615,31 @@ void sendHeartbeat() {
   if (resp.indexOf("DOWNLOAD") != -1) {
     SerialAT.print(payload);
     delay(1000);
+  } else {
+    sendATCommand("AT+HTTPTERM", 500);
+    return;
   }
 
-  sendATCommand("AT+HTTPACTION=2", 10000); // PUT method
-  SerialMon.println("✅ Heartbeat sent");
+  SerialAT.println("AT+HTTPACTION=2");
+  delay(500);
+  
+  String actionResp = "";
+  unsigned long timeout = millis() + 20000;
+  
+  while (millis() < timeout) {
+    while (SerialAT.available()) {
+      String line = SerialAT.readStringUntil('\n');
+      line.trim();
+      
+      if (line.indexOf("+HTTPACTION: 2,200") != -1) {
+        SerialMon.println("✅ Heartbeat sent");
+        break;
+      }
+    }
+    if (actionResp.length() > 0) break;
+    delay(100);
+  }
+  
   sendATCommand("AT+HTTPTERM", 500);
 }
 
@@ -666,7 +698,6 @@ void blinkBoth() {
 }
 
 void showLowBattery() {
-  // Slow pulse on red LED
   static unsigned long lastPulse = 0;
   static bool pulseState = false;
   
@@ -678,7 +709,6 @@ void showLowBattery() {
 }
 
 void showSOSActive() {
-  // Fast blink red LED
   static unsigned long lastBlink = 0;
   static bool blinkState = false;
   
@@ -690,6 +720,5 @@ void showSOSActive() {
 }
 
 void showNoInternet() {
-  // Triple blink red
   blinkRed(3);
 }
