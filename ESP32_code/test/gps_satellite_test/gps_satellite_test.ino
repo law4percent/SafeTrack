@@ -1,3 +1,8 @@
+/*
+Path: ESP32_code/test/gps_satellite_test/gps_satellite_test.ino
+Description: Test code to get GPS location from SIM7600 using satellite data.
+*/
+
 #define TINY_GSM_MODEM_SIM7600
 
 #include <TinyGsmClient.h>
