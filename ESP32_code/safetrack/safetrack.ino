@@ -1,7 +1,8 @@
 /*
- * SafeTrack Device - Production Version v2.2
+ * SafeTrack Device - Production Version v2.3
  * Features: GPS Tracking, SOS Button, Battery Monitoring, Device Status
  * Hardware: ESP32 + SIM7600 + MAX17043
+ * https://claude.ai/chat/c76f0b98-63a7-467d-8143-95b59dff9fe4 Remalyn Abao Claude 
  */
 
 // ==================== MODEM CONFIGURATION ====================
@@ -86,6 +87,7 @@ void updateDeviceStatus();
 void checkSOSButton();
 void readBatteryLevel();
 String sendATCommand(String cmd, unsigned long timeout);
+bool firebasePUT(String path, String json);
 void blinkRed(int times = 1);
 void blinkGreen(int times = 1);
 void blinkBoth();
@@ -97,7 +99,7 @@ void showNoInternet();
 void setup() {
   SerialMon.begin(115200);
   delay(300);
-  SerialMon.println("\n=== SafeTrack Device v2.2 ===");
+  SerialMon.println("\n=== SafeTrack Device v2.3 ===");
   SerialMon.println("Device Code: " + deviceCode);
 
   pinMode(RED_PIN, OUTPUT);
@@ -486,13 +488,14 @@ void sendLocationToFirebase() {
 }
 
 void updateDeviceStatus() {
-  if (!modem.isGprsConnected()) return;
+  if (!modem.isGprsConnected()) {
+    SerialMon.println("⚠️ GPRS not connected");
+    return;
+  }
 
-  String statusPath = firebaseURL + "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus.json";
-  
   SerialMon.println("Updating status...");
 
-  // Use 0 as default, cached location if available, or current GPS if available
+  // Prepare location values
   int locLat = 0;
   int locLon = 0;
   int locAlt = 0;
@@ -509,54 +512,103 @@ void updateDeviceStatus() {
     locAlt = (int)altitude;
   }
 
-  String payload = "{";
-  payload += "\"batteryLevel\":" + String(batteryPercent, 1) + ",";
-  payload += "\"gpsAvailable\":" + String(gpsAvailable ? "true" : "false") + ",";
-  payload += "\"lastLocation\":{";
-  payload += "\"latitude\":" + String(locLat) + ",";
-  payload += "\"longitude\":" + String(locLon) + ",";
-  payload += "\"altitude\":" + String(locAlt);
-  payload += "},";
-  payload += "\"lastUpdate\":{\".sv\":\"timestamp\"},";
-  payload += "\"sos\":" + String(sosActive ? "true" : "false");
-  payload += "}";
+  // Update each field separately using PUT (works reliably)
+  String basePath = "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus";
+  
+  bool success = true;
+  
+  // Battery level
+  if (!firebasePUT(basePath + "/batteryLevel.json", String(batteryPercent, 1))) {
+    success = false;
+  }
+  delay(200);
+  
+  // GPS available
+  if (!firebasePUT(basePath + "/gpsAvailable.json", gpsAvailable ? "true" : "false")) {
+    success = false;
+  }
+  delay(200);
+  
+  // Last location (as object)
+  String locPayload = "{\"latitude\":" + String(locLat) + ",\"longitude\":" + String(locLon) + ",\"altitude\":" + String(locAlt) + "}";
+  if (!firebasePUT(basePath + "/lastLocation.json", locPayload)) {
+    success = false;
+  }
+  delay(200);
+  
+  // SOS status
+  if (!firebasePUT(basePath + "/sos.json", sosActive ? "true" : "false")) {
+    success = false;
+  }
+  delay(200);
+  
+  // Timestamp (special Firebase server value)
+  if (!firebasePUT(basePath + "/lastUpdate.json", "{\".sv\":\"timestamp\"}")) {
+    success = false;
+  }
+  
+  if (success) {
+    SerialMon.println("✅ Status updated");
+  } else {
+    SerialMon.println("⚠️ Some fields failed");
+  }
+}
 
-  sendATCommand("AT+HTTPTERM", 500);
+void sendHeartbeat() {
+  if (!modem.isGprsConnected()) return;
+
+  String heartbeatPath = "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus/lastUpdate.json";
+  
+  SerialMon.println("Sending heartbeat...");
+
+  if (firebasePUT(heartbeatPath, "{\".sv\":\"timestamp\"}")) {
+    SerialMon.println("✅ Heartbeat sent");
+  }
+}
+
+// ==================== FIREBASE PUT HELPER ====================
+
+bool firebasePUT(String path, String value) {
+  String url = firebaseURL + path;
+  
+  sendATCommand("AT+HTTPTERM", 300);
+  delay(300);
+  
+  if (sendATCommand("AT+HTTPINIT", 1500).indexOf("OK") == -1) {
+    return false;
+  }
+  
+  sendATCommand("AT+HTTPPARA=\"CID\",1", 300);
+  sendATCommand("AT+HTTPPARA=\"URL\",\"" + url + "\"", 800);
+  sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 300);
+
+  SerialAT.println("AT+HTTPDATA=" + String(value.length()) + ",10000");
   delay(500);
-  
-  if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) return;
-  
-  sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
-  delay(200);
-  sendATCommand("AT+HTTPPARA=\"URL\",\"" + statusPath + "\"", 1000);
-  delay(200);
-  sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
-  delay(200);
-
-  SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
-  delay(1000);
   
   String resp = "";
   unsigned long start = millis();
-  while (millis() - start < 2000) {
+  while (millis() - start < 1500) {
     if (SerialAT.available()) resp += (char)SerialAT.read();
     if (resp.indexOf("DOWNLOAD") != -1) break;
   }
   
-  if (resp.indexOf("DOWNLOAD") != -1) {
-    SerialAT.print(payload);
-    delay(1000);
-  } else {
-    sendATCommand("AT+HTTPTERM", 500);
-    return;
+  if (resp.indexOf("DOWNLOAD") == -1) {
+    sendATCommand("AT+HTTPTERM", 300);
+    return false;
   }
-
-  SerialAT.println("AT+HTTPACTION=2");  // PUT method to replace data
-  delay(500);
   
-  String actionResp = "";
-  unsigned long timeout = millis() + 20000;
+  SerialAT.print(value);
+  delay(800);
+
+  // Clear buffer
+  while (SerialAT.available()) SerialAT.read();
+  delay(300);
+  
+  SerialAT.println("AT+HTTPACTION=2");
+  delay(300);
+  
   bool success = false;
+  unsigned long timeout = millis() + 15000;
   
   while (millis() < timeout) {
     while (SerialAT.available()) {
@@ -569,78 +621,11 @@ void updateDeviceStatus() {
       }
     }
     if (success) break;
-    delay(100);
+    delay(50);
   }
   
-  if (success) {
-    SerialMon.println("✅ Status updated");
-  } else {
-    SerialMon.println("❌ Status update failed");
-  }
-  
-  sendATCommand("AT+HTTPTERM", 500);
-}
-
-void sendHeartbeat() {
-  if (!modem.isGprsConnected()) return;
-
-  String heartbeatPath = firebaseURL + "/linkedDevices/" + userUid + "/devices/" + deviceCode + "/deviceStatus/lastUpdate.json";
-  
-  SerialMon.println("Sending heartbeat...");
-
-  String payload = "{\".sv\":\"timestamp\"}";
-
-  sendATCommand("AT+HTTPTERM", 500);
-  delay(500);
-  
-  if (sendATCommand("AT+HTTPINIT", 2000).indexOf("OK") == -1) return;
-  
-  sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
-  delay(200);
-  sendATCommand("AT+HTTPPARA=\"URL\",\"" + heartbeatPath + "\"", 1000);
-  delay(200);
-  sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
-  delay(200);
-
-  SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
-  delay(1000);
-  
-  String resp = "";
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    if (SerialAT.available()) resp += (char)SerialAT.read();
-    if (resp.indexOf("DOWNLOAD") != -1) break;
-  }
-  
-  if (resp.indexOf("DOWNLOAD") != -1) {
-    SerialAT.print(payload);
-    delay(1000);
-  } else {
-    sendATCommand("AT+HTTPTERM", 500);
-    return;
-  }
-
-  SerialAT.println("AT+HTTPACTION=2");
-  delay(500);
-  
-  String actionResp = "";
-  unsigned long timeout = millis() + 20000;
-  
-  while (millis() < timeout) {
-    while (SerialAT.available()) {
-      String line = SerialAT.readStringUntil('\n');
-      line.trim();
-      
-      if (line.indexOf("+HTTPACTION: 2,200") != -1) {
-        SerialMon.println("✅ Heartbeat sent");
-        break;
-      }
-    }
-    if (actionResp.length() > 0) break;
-    delay(100);
-  }
-  
-  sendATCommand("AT+HTTPTERM", 500);
+  sendATCommand("AT+HTTPTERM", 300);
+  return success;
 }
 
 // ==================== HELPER FUNCTIONS ====================
