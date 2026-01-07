@@ -1,10 +1,29 @@
+/*
+  This project implements a SIM7600-based GPS/Location tracker that:
+
+  Connects to a cellular network using GPRS
+
+  Authenticates the device with Firebase Realtime Database
+
+  Obtains location using:
+
+  Google Geolocation API (cell tower triangulation)
+
+  IP-based geolocation as fallback
+
+  Sends the location to Firebase
+
+  Uses Red/Green LEDs for status indicators
+*/
+
+
 // ==================== MODEM CONFIGURATION ====================
 #define TINY_GSM_MODEM_SIM7600
 #define TINY_GSM_RX_BUFFER 1024
 
 #include <TinyGsmClient.h>
 #include <HardwareSerial.h>
-#include <ArduinoJson.h>  // IMPORTANT: Install ArduinoJson library via Library Manager
+#include <ArduinoJson.h>
 
 // ==================== PIN DEFINITIONS ====================
 #define UART_BAUD   115200
@@ -23,7 +42,7 @@ String firebaseURL = "https://safetrack-76a0c-default-rtdb.asia-southeast1.fireb
 String deviceCode = "DEVICE1234";  // YOUR DEVICE CODE - Change this to match your device
 
 // ==================== GOOGLE GEOLOCATION API ====================
-const char googleApiKey[] = "AIzaSyB8U54lwyosieENXqSH2Oul_EWZukpDfUA";
+const char googleApiKey[] = "XXXXXXXXXXXXXX";
 
 // ==================== DEVICE AUTHENTICATION ====================
 String userUid = "";      // Will be fetched from Firebase
@@ -31,7 +50,7 @@ String deviceUid = "";    // Will be fetched from Firebase
 bool isAuthorized = false;
 
 // ==================== NETWORK CREDENTIALS ====================
-const char apn[] = "http.globe.com.ph";
+const char apn[] = "internet" // http.globe.com.ph or internet for smart
 const char user[] = "";
 const char pass[] = "";
 
