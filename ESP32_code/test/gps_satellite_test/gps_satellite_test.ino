@@ -1,3 +1,8 @@
+/*
+Path: ESP32_code/test/gps_satellite_test/gps_satellite_test.ino
+Description: Test code to get GPS location from SIM7600 using satellite data.
+*/
+
 #define TINY_GSM_MODEM_SIM7600
 
 #include <TinyGsmClient.h>
@@ -13,7 +18,7 @@ HardwareSerial SerialAT(1);
 #define SerialMon Serial
 
 // ==================== GPRS CONFIGURATION ====================
-const char apn[]  = "internet"; // for smart connection and http.globe.com.ph for globe connection
+const char apn[]  = "http.globe.com.ph"; // Your APN
 const char gprsUser[] = "";
 const char gprsPass[] = "";
 
@@ -22,7 +27,7 @@ float latitude = 0;
 float longitude = 0;
 float altitude = 0;
 float speed_kph = 0;
-float heading = 0;
+int heading = 0;
 
 // ==================== MODEM ====================
 TinyGsm modem(SerialAT);
@@ -32,8 +37,8 @@ void setup() {
   delay(10);
 
   pinMode(RED_PIN, OUTPUT);
-  pinMode(GRN_PIN, OUTPUT);
   digitalWrite(RED_PIN, LOW);
+  pinMode(GRN_PIN, OUTPUT);
   digitalWrite(GRN_PIN, LOW);
 
   SerialAT.begin(115200, SERIAL_8N1, rxPin, txPin);
@@ -70,13 +75,14 @@ void loop() {
     SerialMon.print("Altitude: "); SerialMon.println(altitude, 2);
     SerialMon.print("Speed (kph): "); SerialMon.println(speed_kph, 2);
     SerialMon.print("Heading: "); SerialMon.println(heading, 2);
-    digitalWrite(RED_PIN, LOW);
     digitalWrite(GRN_PIN, HIGH);
+    digitalWrite(RED_PIN, LOW);
   } else {
     SerialMon.println("⚠️ GPS data not available, retrying...");
-    digitalWrite(RED_PIN, HIGH);
     digitalWrite(GRN_PIN, LOW);
+    digitalWrite(RED_PIN, HIGH);
   }
 
+  // Blink LED to indicate GPS read attempt
   delay(5000); // Wait 5 seconds before next read
 }
