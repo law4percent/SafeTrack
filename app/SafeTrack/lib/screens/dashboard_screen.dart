@@ -593,44 +593,6 @@ class _ChildCardState extends State<ChildCard> {
     });
   }
 
-  void _listenToSOS() {
-    // final user = FirebaseAuth.instance.currentUser;
-    // if (user == null) return;
-
-    // // Listen to sosEvents in real-time
-    // _sosListener = rtdbInstance
-    //     .ref('sosEvents')
-    //     .child(user.uid)
-    //     .child(widget.deviceCode)
-    //     .onValue
-    //     .listen((event) {
-    //   if (!mounted) return;
-
-    //   if (event.snapshot.exists) {
-    //     final sosData = event.snapshot.value as Map<dynamic, dynamic>;
-        
-    //     // Check if any SOS event is unresolved
-    //     bool hasActiveSOS = false;
-    //     for (var entry in sosData.entries) {
-    //       final sosEvent = entry.value as Map<dynamic, dynamic>;
-    //       final resolved = sosEvent['resolved'] as bool? ?? true;
-    //       if (!resolved) {
-    //         hasActiveSOS = true;
-    //         break;
-    //       }
-    //     }
-        
-    //     setState(() {
-    //       _hasSOS = hasActiveSOS;
-    //     });
-    //   } else {
-    //     setState(() {
-    //       _hasSOS = false;
-    //     });
-    //   }
-    // });
-  }
-
   Future<void> _loadLatestStatus() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -871,7 +833,6 @@ class _ChildCardState extends State<ChildCard> {
     
     final batteryLevel = _latestLog?['batteryLevel'] as double? ?? 0.0;
     final sosActive = _hasSOS || (_latestLog?['sos'] as bool? ?? false);
-    final lastLocation = _latestLog?['lastLocation'] as Map<dynamic, dynamic>?;
     final isOnline = _isDeviceOnline();
     
     // Build grade/section string
@@ -934,7 +895,6 @@ class _ChildCardState extends State<ChildCard> {
       sosActive,
       isOnline,
       batteryLevel,
-      // lastLocation,  // <-- REMOVE THIS LINE
       imageProvider,
       avatarBgColor,
     );
