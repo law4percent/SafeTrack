@@ -1,12 +1,9 @@
 /*
- * SafeTrack GPS Tracker - Complete Implementation v2
+ * SafeTrack GPS Tracker - Complete Implementation v3
  * Features: GPS tracking, Battery monitoring, SOS button, Firebase sync
  * Hardware: ESP32 + SIM7600 + MAX17043
  * 
- * IMPROVEMENTS:
- * - Continuous SOS button monitoring (non-blocking)
- * - Separate sosEvents node in Firebase
- * - Better button press detection
+ * SOS status is included in regular deviceLogs updates
  */
 
 // ==================== MODEM CONFIGURATION ====================
@@ -88,7 +85,6 @@ bool checkNetworkConnection();
 void connectNetwork();
 bool authenticateDevice();
 void sendToFirebase();
-void sendSOSEventToFirebase();
 String sendATCommand(String cmd, unsigned long timeout);
 void blinkRed();
 void blinkGreen();
@@ -102,7 +98,7 @@ void handleSOSButton();
 void setup() {
   SerialMon.begin(115200);
   delay(300);
-  SerialMon.println("\n\n=== SafeTrack GPS Tracker v2 ===");
+  SerialMon.println("\n\n=== SafeTrack GPS Tracker v3 ===");
   SerialMon.println("Device Code: " + deviceCode);
 
   // Initialize pins
@@ -384,12 +380,13 @@ void handleSOSButton() {
         sosActivatedTime = currentMillis;
         SerialMon.println("\n🚨🚨🚨 SOS ACTIVATED! 🚨🚨🚨");
         SerialMon.println("Will remain active for 1 minute");
-        
-        // Send SOS event to Firebase immediately
-        sendSOSEventToFirebase();
+        SerialMon.println("SOS status will be sent in next Firebase update");
         
         // Visual feedback - fast flash pattern
         flashSOSPattern();
+        
+        // Send immediate update to Firebase with SOS active
+        sendToFirebase();
       }
     }
   } else {
@@ -523,7 +520,7 @@ bool authenticateDevice() {
   return false;
 }
 
-// ==================== FIREBASE FUNCTIONS ====================
+// ==================== FIREBASE FUNCTION ====================
 
 void sendToFirebase() {
   if (!modem.isGprsConnected()) {
@@ -531,17 +528,17 @@ void sendToFirebase() {
     return;
   }
 
-  String firebasePath = firebaseURL + "/deviceLogs/" + userUid + "/" + deviceUid + ".json";
+  String firebasePath = firebaseURL + "/deviceLogs/" + userUid + "/" + deviceCode + ".json";
   
   SerialMon.println("\n📤 Sending to Firebase...");
-  SerialMon.println("Path: /deviceLogs/" + userUid + "/" + deviceUid);
+  SerialMon.println("Path: /deviceLogs/" + userUid + "/" + deviceCode);
 
   // Build JSON payload with new structure
   StaticJsonDocument<512> doc;
   
   doc["batteryLevel"] = round(batteryLevel * 10) / 10.0;
   doc["gpsAvailable"] = gpsAvailable;
-  doc["sos"] = sosActive;
+  doc["sos"] = sosActive;  // SOS status in regular updates
   
   // Current location (live or cached)
   JsonObject currentLoc = doc.createNestedObject("currentLocation");
@@ -564,6 +561,9 @@ void sendToFirebase() {
   serializeJson(doc, payload);
   
   SerialMon.println("Payload: " + payload);
+  if (sosActive) {
+    SerialMon.println("⚠️ SOS STATUS ACTIVE - Sending emergency alert!");
+  }
 
   sendATCommand("AT+HTTPTERM", 500);
   delay(300);
@@ -592,74 +592,11 @@ void sendToFirebase() {
   
   if (actionResp.indexOf("+HTTPACTION: 1,200") != -1) {
     SerialMon.println("✅ Firebase updated successfully!");
+    if (sosActive) {
+      SerialMon.println("🚨 SOS alert sent to parent!");
+    }
   } else {
     SerialMon.println("⚠️ Firebase update may have failed");
-  }
-  
-  sendATCommand("AT+HTTPTERM", 500);
-}
-
-void sendSOSEventToFirebase() {
-  if (!modem.isGprsConnected()) {
-    SerialMon.println("❌ GPRS not connected - cannot send SOS event");
-    return;
-  }
-
-  // Send to separate sosEvents node
-  String sosPath = firebaseURL + "/sosEvents/" + userUid + "/" + deviceUid + ".json";
-  
-  SerialMon.println("\n🚨 Sending SOS EVENT to Firebase...");
-  SerialMon.println("Path: /sosEvents/" + userUid + "/" + deviceUid);
-
-  // Build SOS event payload
-  StaticJsonDocument<384> doc;
-  
-  JsonObject activatedAt = doc.createNestedObject("activatedAt");
-  activatedAt[".sv"] = "timestamp";
-  
-  JsonObject location = doc.createNestedObject("location");
-  location["latitude"] = gpsAvailable ? currentLat : lastValidLat;
-  location["longitude"] = gpsAvailable ? currentLon : lastValidLon;
-  location["altitude"] = gpsAvailable ? currentAlt : lastValidAlt;
-  location["gpsAvailable"] = gpsAvailable;
-  
-  doc["batteryLevel"] = round(batteryLevel * 10) / 10.0;
-  doc["resolved"] = false;
-  
-  String payload;
-  serializeJson(doc, payload);
-  
-  SerialMon.println("SOS Payload: " + payload);
-
-  sendATCommand("AT+HTTPTERM", 500);
-  delay(300);
-  
-  sendATCommand("AT+HTTPINIT", 1000);
-  sendATCommand("AT+HTTPPARA=\"CID\",1", 500);
-  sendATCommand("AT+HTTPPARA=\"URL\",\"" + sosPath + "\"", 1000);
-  sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
-
-  SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
-  delay(500);
-  
-  String resp = "";
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    if (SerialAT.available()) resp += (char)SerialAT.read();
-    if (resp.indexOf("DOWNLOAD") != -1) break;
-  }
-  
-  if (resp.indexOf("DOWNLOAD") != -1) {
-    SerialAT.print(payload);
-    delay(1000);
-  }
-
-  String actionResp = sendATCommand("AT+HTTPACTION=1", 15000);
-  
-  if (actionResp.indexOf("+HTTPACTION: 1,200") != -1) {
-    SerialMon.println("✅ SOS EVENT recorded in Firebase!");
-  } else {
-    SerialMon.println("⚠️ SOS EVENT may have failed to send");
   }
   
   sendATCommand("AT+HTTPTERM", 500);

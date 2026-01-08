@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
+import 'dart:async'; // Added to resolve StreamSubscription
 import '../services/auth_service.dart';
 import '../widgets/quick_actions_grid.dart';
 import 'live_location_screen.dart';
@@ -11,6 +12,7 @@ import 'my_children_screen.dart';
 import 'settings_screen.dart';
 import 'package:intl/intl.dart';
 import 'activity_log_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
@@ -412,58 +414,72 @@ class DashboardContent extends StatelessWidget {
     }
   }
 
-  Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() {
-    return Stream.fromFuture(Future.wait(
-      childDevices.map((device) async {
-        final deviceCode = device['deviceCode'];
-        final deviceData = device['data'];
-        final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
-        
-        final sosActive = deviceStatus?['sos']?.toString() == 'true';
-        
-        // Check if device is online (last update within 5 minutes)
-        // final now = DateTime.now().millisecondsSinceEpoch;
-        final lastUpdateStr = deviceStatus?['lastUpdate']?.toString() ?? '';
-        final isOnline = _isDeviceOnline(lastUpdateStr);
-        
-        return {
-          'deviceCode': deviceCode,
-          'sosActive': sosActive,
-          'isOnline': isOnline,
-        };
-      }),
-    ));
-  }
+  Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() async* {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      yield [];
+      return;
+    }
 
-  bool _isDeviceOnline(String lastUpdateStr) {
-    if (lastUpdateStr.isEmpty) return false;
+    // Get all device codes
+    final deviceCodes = childDevices.map((d) => d['deviceCode'] as String).toList();
     
-    try {
-      // Split date and time
-      final parts = lastUpdateStr.trim().split(' ');
-      if (parts.length != 2) return false;
+    // Listen to changes for all devices at once
+    await for (final _ in rtdbInstance.ref('deviceLogs').child(user.uid).onValue) {
+      List<Map<String, dynamic>> statuses = [];
       
-      final dateParts = parts[0].split('-');
-      final timeParts = parts[1].split(':');
+      for (final deviceCode in deviceCodes) {
+        try {
+          final logsSnapshot = await rtdbInstance
+              .ref('deviceLogs')
+              .child(user.uid)
+              .child(deviceCode)
+              .get();
+          
+          bool isOnline = false;
+          bool hasSOS = false;
+          
+          if (logsSnapshot.exists) {
+            final logsData = logsSnapshot.value as Map<dynamic, dynamic>;
+            
+            // Find latest log entry
+            int highestTimestamp = 0;
+            Map<dynamic, dynamic>? latestLog;
+            
+            for (var entry in logsData.entries) {
+              final logData = entry.value as Map<dynamic, dynamic>;
+              final timestamp = logData['lastUpdate'] as int? ?? 0;
+              
+              if (timestamp > highestTimestamp) {
+                highestTimestamp = timestamp;
+                latestLog = logData;
+              }
+            }
+            
+            if (latestLog != null) {
+              final lastUpdate = latestLog['lastUpdate'] as int? ?? 0;
+              final now = DateTime.now().millisecondsSinceEpoch;
+              isOnline = (now - lastUpdate) < 300000; // 5 minutes
+              hasSOS = latestLog['sos'] as bool? ?? false;
+            }
+          }
+          
+          statuses.add({
+            'deviceCode': deviceCode,
+            'sosActive': hasSOS,
+            'isOnline': isOnline,
+          });
+        } catch (e) {
+          debugPrint('Error getting status for $deviceCode: $e');
+          statuses.add({
+            'deviceCode': deviceCode,
+            'sosActive': false,
+            'isOnline': false,
+          });
+        }
+      }
       
-      if (dateParts.length != 3 || timeParts.length != 3) return false;
-      
-      final lastUpdate = DateTime(
-        int.parse(dateParts[0]), // year
-        int.parse(dateParts[1]), // month
-        int.parse(dateParts[2]), // day
-        int.parse(timeParts[0]), // hour (works with or without leading zero)
-        int.parse(timeParts[1]), // minute
-        int.parse(timeParts[2]), // second
-      );
-      
-      final now = DateTime.now();
-      final difference = now.difference(lastUpdate).inMinutes;
-      
-      return difference < 5; // Online if updated within 5 minutes
-    } catch (e) {
-      debugPrint('Error parsing lastUpdate: $e - Value: $lastUpdateStr');
-      return false;
+      yield statuses;
     }
   }
 }
@@ -471,7 +487,7 @@ class DashboardContent extends StatelessWidget {
 // ---------------------------------------------
 // --- CHILD CARD WIDGET ---
 // ---------------------------------------------
-class ChildCard extends StatelessWidget {
+class ChildCard extends StatefulWidget {
   final String deviceCode;
   final Map<dynamic, dynamic> deviceData;
   final bool isTablet;
@@ -485,40 +501,224 @@ class ChildCard extends StatelessWidget {
     required this.isDesktop,
   });
 
-  bool _isDeviceOnline(String lastUpdateStr) {
-    if (lastUpdateStr.isEmpty) return false;
-    
+  @override
+  State<ChildCard> createState() => _ChildCardState();
+}
+
+class _ChildCardState extends State<ChildCard> {
+  Map<String, dynamic>? _latestLog;
+  bool _hasSOS = false;
+  bool _isLoading = true;
+  // StreamSubscription<DatabaseEvent>? _sosListener;
+  StreamSubscription<DatabaseEvent>? _logListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLatestStatus();
+    // _listenToSOS();
+    _listenToDeviceLogs();
+  }
+
+  @override
+  void dispose() {
+    // _sosListener?.cancel(); // ← ADD THIS
+    _logListener?.cancel();
+    super.dispose();
+  }
+
+  void _listenToDeviceLogs() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _logListener = rtdbInstance
+        .ref('deviceLogs')
+        .child(user.uid)
+        .child(widget.deviceCode)
+        .onValue
+        .listen((event) {
+      if (!mounted) return;
+
+      if (event.snapshot.exists) {
+        final logsData = event.snapshot.value as Map<dynamic, dynamic>;
+        
+        // Find the entry with the highest lastUpdate timestamp
+        MapEntry<dynamic, dynamic>? latestEntry;
+        int highestTimestamp = 0;
+        
+        for (var entry in logsData.entries) {
+          final logData = entry.value as Map<dynamic, dynamic>;
+          final timestamp = logData['lastUpdate'] as int? ?? 0;
+          
+          if (timestamp > highestTimestamp) {
+            highestTimestamp = timestamp;
+            latestEntry = entry;
+          }
+        }
+        
+        if (latestEntry != null) {
+          final latestLogEntry = latestEntry.value as Map<dynamic, dynamic>;
+          
+          setState(() {
+            _latestLog = {
+              'lastUpdate': latestLogEntry['lastUpdate'] as int? ?? 0,
+              'batteryLevel': (latestLogEntry['batteryLevel'] as num?)?.toDouble() ?? 0.0,
+              'sos': latestLogEntry['sos'] as bool? ?? false,
+              'gpsAvailable': latestLogEntry['gpsAvailable'] as bool? ?? false,
+              'currentLocation': latestLogEntry['currentLocation'],
+              'lastLocation': latestLogEntry['lastLocation'],
+            };
+            
+            // Update _hasSOS from latest log
+            _hasSOS = _latestLog!['sos'] as bool? ?? false;
+          });
+        }
+      } else {
+        // Fallback to cached data
+        final cachedStatus = widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+        if (cachedStatus != null) {
+          setState(() {
+            _latestLog = {
+              'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
+              'batteryLevel': (cachedStatus['batteryLevel'] as num?)?.toDouble() ?? 0.0,
+              'sos': cachedStatus['sos'] as bool? ?? false,
+              'gpsAvailable': false,
+              'currentLocation': null,
+              'lastLocation': cachedStatus['lastLocation'],
+            };
+            _hasSOS = cachedStatus['sos'] as bool? ?? false;
+          });
+        }
+      }
+    });
+  }
+
+  void _listenToSOS() {
+    // final user = FirebaseAuth.instance.currentUser;
+    // if (user == null) return;
+
+    // // Listen to sosEvents in real-time
+    // _sosListener = rtdbInstance
+    //     .ref('sosEvents')
+    //     .child(user.uid)
+    //     .child(widget.deviceCode)
+    //     .onValue
+    //     .listen((event) {
+    //   if (!mounted) return;
+
+    //   if (event.snapshot.exists) {
+    //     final sosData = event.snapshot.value as Map<dynamic, dynamic>;
+        
+    //     // Check if any SOS event is unresolved
+    //     bool hasActiveSOS = false;
+    //     for (var entry in sosData.entries) {
+    //       final sosEvent = entry.value as Map<dynamic, dynamic>;
+    //       final resolved = sosEvent['resolved'] as bool? ?? true;
+    //       if (!resolved) {
+    //         hasActiveSOS = true;
+    //         break;
+    //       }
+    //     }
+        
+    //     setState(() {
+    //       _hasSOS = hasActiveSOS;
+    //     });
+    //   } else {
+    //     setState(() {
+    //       _hasSOS = false;
+    //     });
+    //   }
+    // });
+  }
+
+  Future<void> _loadLatestStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     try {
-      // Split date and time
-      final parts = lastUpdateStr.trim().split(' ');
-      if (parts.length != 2) return false;
+      // Get ALL logs and find the one with the highest lastUpdate
+      final logsSnapshot = await rtdbInstance
+          .ref('deviceLogs')
+          .child(user.uid)
+          .child(widget.deviceCode)
+          .get();
       
-      final dateParts = parts[0].split('-');
-      final timeParts = parts[1].split(':');
-      
-      if (dateParts.length != 3 || timeParts.length != 3) return false;
-      
-      final lastUpdate = DateTime(
-        int.parse(dateParts[0]), // year
-        int.parse(dateParts[1]), // month
-        int.parse(dateParts[2]), // day
-        int.parse(timeParts[0]), // hour (works with or without leading zero)
-        int.parse(timeParts[1]), // minute
-        int.parse(timeParts[2]), // second
-      );
-      
-      final now = DateTime.now();
-      final difference = now.difference(lastUpdate).inMinutes;
-      
-      return difference < 5; // Online if updated within 5 minutes
+      if (mounted) {
+        setState(() {
+          if (logsSnapshot.exists) {
+            final logsData = logsSnapshot.value as Map<dynamic, dynamic>;
+            
+            // Find the entry with the highest lastUpdate timestamp
+            MapEntry<dynamic, dynamic>? latestEntry;
+            int highestTimestamp = 0;
+            
+            for (var entry in logsData.entries) {
+              final logData = entry.value as Map<dynamic, dynamic>;
+              final timestamp = logData['lastUpdate'] as int? ?? 0;
+              
+              if (timestamp > highestTimestamp) {
+                highestTimestamp = timestamp;
+                latestEntry = entry;
+              }
+            }
+            
+            if (latestEntry != null) {
+              final latestLogEntry = latestEntry.value as Map<dynamic, dynamic>;
+              
+              _latestLog = {
+                'lastUpdate': latestLogEntry['lastUpdate'] as int? ?? 0,
+                'batteryLevel': (latestLogEntry['batteryLevel'] as num?)?.toDouble() ?? 0.0,
+                'sos': latestLogEntry['sos'] as bool? ?? false,
+                'gpsAvailable': latestLogEntry['gpsAvailable'] as bool? ?? false,
+                'currentLocation': latestLogEntry['currentLocation'],
+                'lastLocation': latestLogEntry['lastLocation'],
+              };
+              
+              // Update _hasSOS from deviceLog
+              _hasSOS = _latestLog!['sos'] as bool? ?? false;
+            }
+          } else {
+            // Fallback to cached deviceStatus
+            final cachedStatus = widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+            if (cachedStatus != null) {
+              _latestLog = {
+                'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
+                'batteryLevel': (cachedStatus['batteryLevel'] as num?)?.toDouble() ?? 0.0,
+                'sos': cachedStatus['sos'] as bool? ?? false,
+                'gpsAvailable': false,
+                'currentLocation': null,
+                'lastLocation': cachedStatus['lastLocation'],
+              };
+              _hasSOS = cachedStatus['sos'] as bool? ?? false;
+            }
+          }
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      debugPrint('Error parsing lastUpdate: $e - Value: $lastUpdateStr');
-      return false;
+      debugPrint('Error loading status for ${widget.deviceCode}: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
+  bool _isDeviceOnline() {
+    if (_latestLog == null) return false;
+    
+    final lastUpdate = _latestLog!['lastUpdate'] as int? ?? 0;
+    if (lastUpdate == 0) return false;
+    
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final difference = now - lastUpdate;
+    
+    return difference < 300000; // 5 minutes in milliseconds
+  }
+
   void _showDeviceInfo(BuildContext context) {
-    final addedAt = (deviceData['addedAt'] as num?)?.toInt();
+    final addedAt = (widget.deviceData['addedAt'] as num?)?.toInt();
     final addedDate = addedAt != null 
         ? DateFormat('MMM dd, yyyy - hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(addedAt))
         : 'Unknown';
@@ -538,11 +738,11 @@ class ChildCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInfoRow('Device Code:', deviceCode),
+              _buildInfoRow('Device Code:', widget.deviceCode),
               SizedBox(height: 8),
               _buildInfoRow('Added On:', addedDate),
               SizedBox(height: 8),
-              _buildInfoRow('Status:', deviceData['deviceEnabled']?.toString() == 'true' ? 'Enabled' : 'Disabled'),
+              _buildInfoRow('Status:', widget.deviceData['deviceEnabled']?.toString() == 'true' ? 'Enabled' : 'Disabled'),
             ],
           ),
           actions: [
@@ -583,7 +783,7 @@ class ChildCard extends StatelessWidget {
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: EdgeInsets.all(isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
+          insetPadding: EdgeInsets.all(widget.isDesktop ? 40.0 : widget.isTablet ? 30.0 : 20.0),
           child: Stack(
             children: [
               Container(
@@ -609,7 +809,7 @@ class ChildCard extends StatelessWidget {
                               return Icon(
                                 Icons.error, 
                                 color: Colors.white, 
-                                size: isDesktop ? 60.0 : isTablet ? 50.0 : 40.0
+                                size: widget.isDesktop ? 60.0 : widget.isTablet ? 50.0 : 40.0
                               );
                             },
                           ),
@@ -617,12 +817,12 @@ class ChildCard extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: EdgeInsets.all(isDesktop ? 20.0 : isTablet ? 16.0 : 12.0),
+                      padding: EdgeInsets.all(widget.isDesktop ? 20.0 : widget.isTablet ? 16.0 : 12.0),
                       child: Text(
                         childName,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: isDesktop ? 20.0 : isTablet ? 18.0 : 16.0,
+                          fontSize: widget.isDesktop ? 20.0 : widget.isTablet ? 18.0 : 16.0,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -632,13 +832,13 @@ class ChildCard extends StatelessWidget {
               ),
               
               Positioned(
-                top: isDesktop ? 50.0 : isTablet ? 40.0 : 30.0,
-                right: isDesktop ? 30.0 : isTablet ? 20.0 : 10.0,
+                top: widget.isDesktop ? 50.0 : widget.isTablet ? 40.0 : 30.0,
+                right: widget.isDesktop ? 30.0 : widget.isTablet ? 20.0 : 10.0,
                 child: IconButton(
                   icon: Icon(
                     Icons.close, 
                     color: Colors.white, 
-                    size: isDesktop ? 35.0 : isTablet ? 30.0 : 25.0
+                    size: widget.isDesktop ? 35.0 : widget.isTablet ? 30.0 : 25.0
                   ),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -664,18 +864,15 @@ class ChildCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final childName = deviceData['childName']?.toString() ?? 'Unknown Child';
-    final yearLevel = deviceData['yearLevel']?.toString() ?? '';
-    final section = deviceData['section']?.toString() ?? '';
-    final imageBase64 = deviceData['imageProfileBase64']?.toString();
+    final childName = widget.deviceData['childName']?.toString() ?? 'Unknown Child';
+    final yearLevel = widget.deviceData['yearLevel']?.toString() ?? '';
+    final section = widget.deviceData['section']?.toString() ?? '';
+    final imageBase64 = widget.deviceData['imageProfileBase64']?.toString();
     
-    final deviceStatus = deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
-    final batteryLevel = (deviceStatus?['batteryLevel'] as num?)?.toInt() ?? 0;
-    final sosActive = deviceStatus?['sos']?.toString() == 'true';
-    final lastLocation = deviceStatus?['lastLocation'] as Map<dynamic, dynamic>?;
-    
-    final lastUpdateStr = deviceStatus?['lastUpdate']?.toString() ?? '';
-    final isOnline = _isDeviceOnline(lastUpdateStr);
+    final batteryLevel = _latestLog?['batteryLevel'] as double? ?? 0.0;
+    final sosActive = _hasSOS || (_latestLog?['sos'] as bool? ?? false);
+    final lastLocation = _latestLog?['lastLocation'] as Map<dynamic, dynamic>?;
+    final isOnline = _isDeviceOnline();
     
     // Build grade/section string
     String gradeSection = '';
@@ -691,6 +888,45 @@ class ChildCard extends StatelessWidget {
     final ImageProvider? imageProvider = _getImageProvider(imageBase64);
     final Color avatarBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.2);
 
+    if (_isLoading) {
+      return Card(
+        elevation: 2,
+        margin: EdgeInsets.only(bottom: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 8.0),
+        child: Padding(
+          padding: EdgeInsets.all(widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0,
+                backgroundColor: avatarBgColor,
+                backgroundImage: imageProvider,
+                child: imageProvider == null 
+                    ? Icon(Icons.person, size: (widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0) * 0.6)
+                    : null,
+              ),
+              SizedBox(width: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      childName,
+                      style: TextStyle(
+                        fontSize: widget.isDesktop ? 18.0 : widget.isTablet ? 16.0 : 14.0,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    CircularProgressIndicator(strokeWidth: 2),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return _buildChildCard(
       context,
       childName,
@@ -698,7 +934,7 @@ class ChildCard extends StatelessWidget {
       sosActive,
       isOnline,
       batteryLevel,
-      lastLocation,
+      // lastLocation,  // <-- REMOVE THIS LINE
       imageProvider,
       avatarBgColor,
     );
@@ -710,19 +946,19 @@ class ChildCard extends StatelessWidget {
     String gradeSection,
     bool sosActive,
     bool isOnline,
-    int batteryLevel,
-    Map<dynamic, dynamic>? lastLocation,
+    double batteryLevel,
+    // lastLocation parameter removed
     ImageProvider? imageProvider,
     Color avatarBgColor,
   ) {
-    final avatarSize = isDesktop ? 56.0 : isTablet ? 48.0 : 40.0;
-    final iconSize = isDesktop ? 20.0 : isTablet ? 18.0 : 16.0;
-    final fontSizeTitle = isDesktop ? 18.0 : isTablet ? 16.0 : 14.0;
-    final fontSizeSubtitle = isDesktop ? 14.0 : isTablet ? 13.0 : 12.0;
+    final avatarSize = widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0;
+    final iconSize = widget.isDesktop ? 20.0 : widget.isTablet ? 18.0 : 16.0;
+    final fontSizeTitle = widget.isDesktop ? 18.0 : widget.isTablet ? 16.0 : 14.0;
+    final fontSizeSubtitle = widget.isDesktop ? 14.0 : widget.isTablet ? 13.0 : 12.0;
 
     return Card(
       elevation: sosActive ? 8 : 2,
-      margin: EdgeInsets.only(bottom: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
+      margin: EdgeInsets.only(bottom: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 8.0),
       color: sosActive ? Colors.red.shade50 : null,
       child: InkWell(
         onTap: () {
@@ -731,7 +967,7 @@ class ChildCard extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (context) => ActivityLogScreen(
-                deviceCode: deviceCode,
+                deviceCode: widget.deviceCode,
                 childName: childName,
               ),
             ),
@@ -746,7 +982,7 @@ class ChildCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ) : null,
               child: Padding(
-                padding: EdgeInsets.all(isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+                padding: EdgeInsets.all(widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
                 child: Row(
                   children: [
                     GestureDetector(
@@ -783,7 +1019,7 @@ class ChildCard extends StatelessWidget {
                       ),
                     ),
                     
-                    SizedBox(width: isDesktop ? 16.0 : isTablet ? 12.0 : 10.0),
+                    SizedBox(width: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
                     
                     Expanded(
                       child: Column(
@@ -854,7 +1090,7 @@ class ChildCard extends StatelessWidget {
                           
                           SizedBox(height: 4),
                           
-                          // Battery Level
+                          // Battery Level (Percentage)
                           if (batteryLevel > 0)
                             Row(
                               children: [
@@ -864,14 +1100,18 @@ class ChildCard extends StatelessWidget {
                                   batteryLevel > 20 ? Icons.battery_charging_full :
                                   Icons.battery_alert,
                                   size: iconSize,
-                                  color: batteryLevel < 20 ? Colors.red : Colors.grey[600],
+                                  color: batteryLevel < 20 ? Colors.red : 
+                                        batteryLevel < 50 ? Colors.orange :
+                                        Colors.green,
                                 ),
                                 SizedBox(width: 4),
                                 Text(
-                                  '$batteryLevel%',
+                                  '${batteryLevel.round()}%',  // Changed from toStringAsFixed(0)
                                   style: TextStyle(
                                     fontSize: fontSizeSubtitle,
-                                    color: batteryLevel < 20 ? Colors.red : Colors.grey[700],
+                                    color: batteryLevel < 20 ? Colors.red : 
+                                          batteryLevel < 50 ? Colors.orange :
+                                          Colors.grey[700],
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -879,27 +1119,67 @@ class ChildCard extends StatelessWidget {
                             ),
                           
                           SizedBox(height: 4),
-                          
-                          // Location Info
-                          if (lastLocation != null)
-                            Row(
-                              children: [
-                                Icon(Icons.location_on, size: iconSize, color: Colors.blue),
-                                SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    'Lat: ${lastLocation['latitude']?.toStringAsFixed(4) ?? '0.0000'}, '
-                                    'Lon: ${lastLocation['longitude']?.toStringAsFixed(4) ?? '0.0000'}',
-                                    style: TextStyle(
-                                      fontSize: fontSizeSubtitle * 0.9,
-                                      color: Colors.grey[600],
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+
+                          // GPS Status
+                          Row(
+                            children: [
+                              Icon(
+                                _latestLog?['gpsAvailable'] == true ? Icons.gps_fixed : Icons.gps_off,
+                                size: iconSize,
+                                color: _latestLog?['gpsAvailable'] == true ? Colors.green : Colors.orange,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                _latestLog?['gpsAvailable'] == true ? 'GPS Available' : 'GPS Unavailable',
+                                style: TextStyle(
+                                  fontSize: fontSizeSubtitle,
+                                  color: _latestLog?['gpsAvailable'] == true ? Colors.green : Colors.orange,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                              ],
+                              ),
+                            ],
+                          ),
+
+                          // Location Info
+                          if (_latestLog != null) ...[
+                            Builder(
+                              builder: (context) {
+                                final currentLoc = _latestLog!['currentLocation'] as Map<dynamic, dynamic>?;
+                                final lastLoc = _latestLog!['lastLocation'] as Map<dynamic, dynamic>?;
+                                
+                                final location = currentLoc ?? lastLoc;
+                                
+                                if (location != null) {
+                                  final lat = (location['latitude'] as num?)?.toDouble() ?? 0.0;
+                                  final lon = (location['longitude'] as num?)?.toDouble() ?? 0.0;
+                                  final status = currentLoc?['status'] as String? ?? 'unknown';
+                                  
+                                  return Row(
+                                    children: [
+                                      Icon(
+                                        status == 'success' ? Icons.location_on : Icons.location_off,
+                                        size: iconSize,
+                                        color: status == 'success' ? Colors.blue : Colors.orange,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          'Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)} ${status == 'cached' ? '(Cached)' : ''}',
+                                          style: TextStyle(
+                                            fontSize: fontSizeSubtitle * 0.9,
+                                            color: Colors.grey[600],
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return SizedBox.shrink();
+                              },
                             ),
+                          ],
                           
                           // Tap hint
                           SizedBox(height: 6),
@@ -927,8 +1207,8 @@ class ChildCard extends StatelessWidget {
                       children: [
                         Container(
                           padding: EdgeInsets.symmetric(
-                            horizontal: isDesktop ? 16 : isTablet ? 12 : 10,
-                            vertical: isDesktop ? 8 : isTablet ? 6 : 5,
+                            horizontal: widget.isDesktop ? 16 : widget.isTablet ? 12 : 10,
+                            vertical: widget.isDesktop ? 8 : widget.isTablet ? 6 : 5,
                           ),
                           decoration: BoxDecoration(
                             color: sosActive ? Colors.red : Colors.green,

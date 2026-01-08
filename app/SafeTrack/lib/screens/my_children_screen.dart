@@ -1,3 +1,5 @@
+// lib/screens/my_children_screen.dart
+// Remove the deviceStatus field from linkedDevices when linking a new device
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
