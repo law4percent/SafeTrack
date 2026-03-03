@@ -427,13 +427,13 @@ class _DeviceLocationCardState extends State<DeviceLocationCard> {
                   _buildInfoRow(
                     Icons.my_location,
                     'Latitude',
-                    latitude!.toStringAsFixed(6),
+                    latitude.toStringAsFixed(6),
                   ),
                   const SizedBox(height: 8),
                   _buildInfoRow(
                     Icons.explore,
                     'Longitude',
-                    longitude!.toStringAsFixed(6),
+                    longitude.toStringAsFixed(6),
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -497,8 +497,8 @@ class _DeviceLocationCardState extends State<DeviceLocationCard> {
                 child: ElevatedButton.icon(
                   onPressed: () => _openFullScreenMap(
                     context,
-                    latitude!,
-                    longitude!,
+                    latitude,
+                    longitude,
                   ),
                   icon: const Icon(Icons.open_in_full, size: 18),
                   label: const Text('Full Screen Map'),

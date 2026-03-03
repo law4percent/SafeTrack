@@ -1,3 +1,4 @@
+// path: app/SafeTrack/lib/data/quick_actions_data.dart
 import 'package:flutter/material.dart';
 
 // Ito ang central source ng data para sa Quick Actions
