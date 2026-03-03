@@ -8,11 +8,13 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard_screen.dart';
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  await dotenv.load(fileName: ".env");
+
   // Initialize Firebase with platform-specific options
   await Firebase.initializeApp();
   

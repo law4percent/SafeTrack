@@ -1,4 +1,4 @@
-// app/SafeTrack/lib/services/gemini_service.dart
+// lib/services/gemini_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
@@ -6,7 +6,13 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
-  static String get _apiKey => dotenv.env['GEMINI_API_KEY'] ?? '';
+  static String get _apiKey {
+    final key = dotenv.env['GEMINI_API_KEY'];
+    if (key == null || key.isEmpty) {
+      throw Exception("GEMINI_API_KEY is missing in .env file");
+    }
+    return key;
+  }
   static String get _geminiModelName => dotenv.env['GEMINI_MODEL_NAME'] ?? 'gemini-2.5-flash';
 
   late final GenerativeModel _model;
