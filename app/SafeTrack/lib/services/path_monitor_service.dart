@@ -64,6 +64,9 @@ class PathMonitorService {
   OnDeviationDetected? _onDeviationDetected;
   bool _isRunning = false;
 
+  /// Whether the monitor is currently active.
+  bool get isRunning => _isRunning;
+
   // ── Public API ────────────────────────────────────────────────
 
   /// Start monitoring all linked devices for the current user.
