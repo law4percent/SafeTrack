@@ -108,10 +108,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     // Navigate to the child's Live Location screen
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => LiveLocationScreen(
-          deviceCode: deviceCode,
-          userId: user.uid,
-        ),
+        builder: (_) => const LiveLocationsScreen(),
       ),
     );
   }
