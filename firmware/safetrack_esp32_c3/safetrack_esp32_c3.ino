@@ -1,6 +1,6 @@
 /*
  * SafeTrack GPS Tracker — ESP32-C3 Super Mini
- * Version: 4.2 (RTDB-aligned Build)
+ * Version: 4.3 (Conflict-free Build)
  *
  * Hardware:
  *   - ESP32-C3 Super Mini
@@ -330,18 +330,28 @@ void sendLocationLog() {
   // For simplicity we use a server-side timestamp via .sv
   // NOTE: the Flutter app reads 'timestamp' as a Unix ms integer,
   // so we use Firebase server value here.
-  StaticJsonDocument<384> doc;
+  // ✅ FIX: Dashboard reads logData['lastUpdate'] for online status,
+  //         so we write BOTH 'timestamp' (for live_location/gemini)
+  //         AND 'lastUpdate' (for dashboard) with the same server value.
+  // ✅ FIX: Dashboard reads logData['batteryLevel'] first before falling
+  //         back to deviceStatus, so include it here too.
+  StaticJsonDocument<512> doc;
   doc["latitude"]     = lat;
   doc["longitude"]    = lon;
   doc["altitude"]     = round(alt * 10) / 10.0;
   doc["speed"]        = round(spd * 10) / 10.0;  // km/h
   doc["accuracy"]     = gpsValid ? 5.0 : 50.0;   // estimated meters
   doc["locationType"] = gpsValid ? "gps" : "cached";
-  doc["sos"]          = sosActive;   // consistent with deviceStatus field name
+  doc["sos"]          = sosActive;
+  doc["batteryLevel"] = (int)round(batteryPct);   // dashboard reads this from logs
 
-  // Firebase server-side timestamp (milliseconds since epoch)
+  // Both 'timestamp' and 'lastUpdate' point to the same server value.
+  // 'timestamp'  → read by live_location_screen and gemini_service
+  // 'lastUpdate' → read by dashboard_screen for online/offline detection
   JsonObject ts = doc.createNestedObject("timestamp");
   ts[".sv"] = "timestamp";
+  JsonObject lu = doc.createNestedObject("lastUpdate");
+  lu[".sv"] = "timestamp";
 
   String payload;
   serializeJson(doc, payload);
@@ -453,8 +463,7 @@ String _sendAT(const String& cmd, unsigned long timeoutMs = 2000) {
   return resp;
 }
 
-bool _httpRequest(const String& url, const String& payload,
-                  int action) {
+bool _httpRequest(const String& url, const String& payload, int action) {
   // action: 0=GET, 1=POST
   _sendAT("AT+HTTPTERM", 500);
   delay(200);
