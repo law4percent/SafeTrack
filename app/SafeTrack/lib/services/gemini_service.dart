@@ -58,7 +58,7 @@ Mapping: flutter_map + OpenStreetMap tiles (free, no API key).
 ## Firebase Realtime Database Structure
 - linkedDevices/{userId}/devices/{deviceCode}: childName, deviceEnabled.
 - deviceLogs/{userId}/{deviceCode}/{pushId}: latitude, longitude, accuracy, speed, altitude, locationType, timestamp.
-- deviceStatus/{deviceCode}: battery, isSOS, lastUpdate.
+- linkedDevices/{userId}/devices/{deviceCode}/deviceStatus: batteryLevel, sos, lastUpdate, lastLocation (latitude/longitude/altitude).
 - devicePaths/{userId}/{deviceCode}/{routeId}: pathName, deviationThresholdMeters, isActive, waypoints (wp_0, wp_1, ... as Map keys to prevent Firebase List conversion).
 
 Offline persistence: 10MB cache enabled for resilience during brief connectivity loss.
@@ -339,6 +339,15 @@ class GeminiService {
   int _daysInMonth(int year, int month) =>
       DateTime(year, month + 1, 0).day;
 
+  // ── Safe int cast (handles int, double, String) ────────────
+  int _toInt(dynamic val) {
+    if (val == null) return 0;
+    if (val is int) return val;
+    if (val is double) return val.toInt();
+    if (val is String) return int.tryParse(val) ?? 0;
+    return 0;
+  }
+
   // ── Fetch Firebase context ────────────────────────────────────
   Future<String> _buildFirebaseContext({
     String originalQuestion = '',
@@ -382,26 +391,45 @@ class GeminiService {
         buf.writeln('- Tracking: ${isEnabled ? "Enabled" : "Disabled"}');
 
         // ── Device status (battery, SOS) ─────────────────────
+        // ✅ Reads from correct RTDB path:
+        //    linkedDevices/{uid}/devices/{deviceCode}/deviceStatus
+        // ✅ Correct field names: batteryLevel, sos
         try {
           final statusSnap = await FirebaseDatabase.instance
-              .ref('deviceStatus')
+              .ref('linkedDevices')
+              .child(user.uid)
+              .child('devices')
               .child(deviceCode)
+              .child('deviceStatus')
               .get();
           if (statusSnap.exists) {
             final s = statusSnap.value as Map<dynamic, dynamic>;
-            final battery = s['battery'] ?? 'N/A';
-            final isSOS = s['isSOS'] as bool? ?? false;
-            final lastTs = s['lastUpdate'] as int? ?? 0;
-            final minsAgo = DateTime.now()
-                .difference(
-                    DateTime.fromMillisecondsSinceEpoch(lastTs))
-                .inMinutes;
-            final isOnline = minsAgo < 5;
+            final battery  = s['batteryLevel'] ?? 'N/A';
+            final isSOS    = s['sos'] as bool? ?? false;
+            final lastTs   = _toInt(s['lastUpdate']);
+            final isOnline = lastTs > 0 &&
+                DateTime.now()
+                    .difference(DateTime.fromMillisecondsSinceEpoch(lastTs))
+                    .inMinutes < 5;
+            final minsAgo  = lastTs > 0
+                ? DateTime.now()
+                    .difference(DateTime.fromMillisecondsSinceEpoch(lastTs))
+                    .inMinutes
+                : -1;
             buf.writeln('- Battery: $battery%');
             buf.writeln('- SOS Active: ${isSOS ? "YES — EMERGENCY" : "No"}');
-            buf.writeln('- Online status: ${isOnline ? "Online" : "Offline (last seen $minsAgo min ago)"}');
+            buf.writeln('- Online: ${isOnline ? "Online" : minsAgo >= 0 ? "Offline (last seen ${minsAgo}min ago)" : "Unknown"}');
+            // Surface lastLocation from deviceStatus
+            final ll = s['lastLocation'];
+            if (ll is Map) {
+              final llLat = (ll['latitude']  as num?)?.toDouble() ?? 0;
+              final llLng = (ll['longitude'] as num?)?.toDouble() ?? 0;
+              if (llLat != 0 && llLng != 0) {
+                buf.writeln('- Last known (status node): Lat $llLat, Lng $llLng');
+              }
+            }
           } else {
-            buf.writeln('- Battery: No status data available');
+            buf.writeln('- Battery: No status data yet (device not yet synced)');
           }
         } catch (e) {
           buf.writeln('- Battery: Error reading status');

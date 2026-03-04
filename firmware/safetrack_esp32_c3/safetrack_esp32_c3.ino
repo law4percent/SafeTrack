@@ -1,6 +1,6 @@
 /*
  * SafeTrack GPS Tracker — ESP32-C3 Super Mini
- * Version: 4.1 (Health-checked Build)
+ * Version: 4.2 (RTDB-aligned Build)
  *
  * Hardware:
  *   - ESP32-C3 Super Mini
@@ -15,8 +15,8 @@
  *   deviceLogs/{userUid}/{deviceCode}/{pushId}
  *     → latitude, longitude, altitude, speed, accuracy,
  *       locationType, timestamp
- *   deviceStatus/{deviceCode}
- *     → battery, isSOS, lastUpdate
+ *   linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
+ *     → batteryLevel, sos, lastUpdate, lastLocation
  *
  * Firebase path read for auth:
  *   realDevices/{deviceUid}/deviceCode   → match deviceCode
@@ -337,7 +337,7 @@ void sendLocationLog() {
   doc["speed"]        = round(spd * 10) / 10.0;  // km/h
   doc["accuracy"]     = gpsValid ? 5.0 : 50.0;   // estimated meters
   doc["locationType"] = gpsValid ? "gps" : "cached";
-  doc["isSOS"]        = sosActive;
+  doc["sos"]          = sosActive;   // consistent with deviceStatus field name
 
   // Firebase server-side timestamp (milliseconds since epoch)
   JsonObject ts = doc.createNestedObject("timestamp");
@@ -368,21 +368,40 @@ void sendLocationLog() {
 // Flutter dashboard and AI assistant read battery + SOS from here.
 //
 void sendDeviceStatus() {
-  StaticJsonDocument<192> doc;
-  doc["battery"]    = (int)round(batteryPct);
-  doc["isSOS"]      = sosActive;
+  // ✅ Path matches real RTDB structure:
+  //    linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
+  // ✅ Field names match RTDB schema:
+  //    batteryLevel (not battery), sos (not isSOS)
+  // ✅ lastLocation updated with current GPS fix
+  StaticJsonDocument<256> doc;
+  doc["batteryLevel"] = (int)round(batteryPct);
+  doc["sos"]          = sosActive;
+  doc["lastUpdate"]   = (unsigned long)(millis()); // overwritten by server .sv below
 
+  // lastLocation — mirrors the nested object already in RTDB
+  JsonObject loc = doc.createNestedObject("lastLocation");
+  loc["latitude"]  = gpsValid ? gpsLat  : lastLat;
+  loc["longitude"] = gpsValid ? gpsLon  : lastLon;
+  loc["altitude"]  = gpsValid ? gpsAlt  : lastAlt;
+
+  // Server-side timestamp for lastUpdate
+  // Firebase resolves {".sv":"timestamp"} to Unix ms on write
+  doc.remove("lastUpdate");
   JsonObject ts = doc.createNestedObject("lastUpdate");
   ts[".sv"] = "timestamp";
 
   String payload;
   serializeJson(doc, payload);
 
-  // PATCH via POST + x-http-method-override (see _httpPostOverwrite)
-  // This overwrites deviceStatus fields without creating push-ID children
-  String url = FIREBASE_URL + "/deviceStatus/" + DEVICE_CODE + ".json";
+  // PATCH via POST + x-http-method-override
+  // Path: linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
+  String url = FIREBASE_URL
+               + "/linkedDevices/" + userUid
+               + "/devices/" + DEVICE_CODE
+               + "/deviceStatus.json";
 
-  SerialMon.println("  📤 Sending deviceStatus...");
+  SerialMon.println("  📤 Sending deviceStatus → linkedDevices path...");
+  SerialMon.println("     " + payload);
   _httpPostOverwrite(url, payload);
 }
 
