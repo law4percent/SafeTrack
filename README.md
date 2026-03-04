@@ -1,332 +1,210 @@
-# 🛡️ SafeTrack - Student Safety Monitoring System
+# SafeTrack: IoT-Based Child Safety Monitoring System with AI-Assisted Parental Guidance
 
-A comprehensive Flutter-based child safety monitoring application that provides real-time location tracking, SOS alerts, and parent-child device management.
+SafeTrack is an integrated child safety monitoring system that combines a custom-built IoT tracker device with a real-time mobile application and an AI-powered assistant. The system is designed to provide parents of elementary school students with continuous visibility into their child's location, safety status, and route compliance — particularly during school commutes and within school premises.
 
-## 📋 Table of Contents
+---
 
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Firebase Setup](#-firebase-setup)
-- [Environment Configuration](#-environment-configuration)
-- [Running the App](#-running-the-app)
-- [APK Convertion](#%EF%B8%8F-apk-convertion)
-- [Change APP Icon](#-change-app-icon)
-- [Project Structure](#-project-structure)
-- [Documentation](#-documentation)
-- [Troubleshooting](#-troubleshooting)
+## Overview
 
-## ✨ Features
+SafeTrack addresses a critical gap in child safety monitoring: the period between when a child leaves home and when they arrive at school, and vice versa. Using a combination of GPS tracking, 4G LTE connectivity, Firebase cloud infrastructure, Haversine-based geofencing, and Google Gemini AI, SafeTrack delivers real-time alerts, route deviation detection, and intelligent contextual answers to parental safety queries.
 
-- 🔐 **Secure Authentication**: Email/Password, Google Sign-In, Facebook Login
-- 📍 **Real-Time Location Tracking**: Live GPS tracking of linked devices
-- 🚨 **SOS Alerts**: Emergency notifications from child devices
-- 👨‍👩‍👧 **Device Management**: Link and manage multiple child devices
-- 🏫 **Location Detection**: Automatic school/home arrival notifications
-- 📊 **Activity Logs**: Track location history and device activity
-- 🗺️ **Interactive Maps**: View multiple devices on map with routes
-- 🔋 **Battery Monitoring**: Real-time battery status for all devices
-- 🤖 **AI Assistant**: Ask AI feature for safety recommendations
+---
 
-## 🛠️ Prerequisites
+## Problem Being Solved
 
-Before you begin, ensure you have the following installed:
+The safety of elementary school children during their daily commute and within school campuses remains a persistent concern for parents and guardians. Conventional monitoring methods — such as phone calls or manual check-ins — are unreliable, disruptive, and provide no real-time spatial awareness. Existing commercial GPS trackers often lack intelligent alert systems, require expensive subscription plans, or depend on infrastructure not readily available in developing regions.
 
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (^3.9.2)
-- [Dart SDK](https://dart.dev/get-dart)
-- [Android Studio](https://developer.android.com/studio) or [Xcode](https://developer.apple.com/xcode/) (for iOS)
-- [Git](https://git-scm.com/)
-- [Firebase CLI](https://firebase.google.com/docs/cli) (optional)
+SafeTrack proposes a low-cost, locally deployable, and AI-augmented solution tailored to the needs of parents who want affordable and reliable child monitoring.
 
-## 📥 Installation
+---
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/SafeTrack.git
-   cd SafeTrack
-   ```
+## Project Goals
 
-2. **Navigate to the Flutter project**
-   ```bash
-   cd app/SafeTrack
-   ```
+1. Design and develop a custom IoT tracker device capable of real-time GPS tracking and 4G LTE data transmission.
+2. Build a cross-platform mobile application for parents to monitor child location, route compliance, and device status.
+3. Implement a Haversine-based route deviation detection algorithm with configurable thresholds.
+4. Integrate a context-aware AI assistant to answer parental safety questions using real-time device data.
+5. Evaluate system accuracy, response latency, and battery performance under real-world conditions.
 
-3. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
+---
 
-4. **Verify Flutter installation**
-   ```bash
-   flutter doctor
-   ```
+## System Components
 
-## 🔥 Firebase Setup
+### 1. IoT Tracker Device
 
-### 1. Create Firebase Project
+The hardware component is a custom-built portable device carried by the child. It is designed to be compact, durable, and power-efficient.
 
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Create a new project or use existing: `safetrack-76a0c`
-3. Enable the following services:
-   - **Authentication**: Email/Password, Google, Facebook
-   - **Firestore Database**: For user data storage
-   - **Realtime Database**: For live location tracking
+**Hardware Components:**
 
-### 2. Configure Firebase for Android
+| Component | Specification | Purpose |
+|---|---|---|
+| ESP32-C3 Super Mini | RISC-V 160MHz, Wi-Fi + BLE | Main microcontroller |
+| SIM7600E-H1C | 4G LTE Cat-4, integrated GPS | Cellular data + GPS receiver |
+| MAX17043 | I²C LiPo fuel gauge | Battery percentage monitoring |
+| TP4056 | 1A LiPo charging module | Safe battery charging |
+| MT3608 | DC-DC boost converter | Regulates 3.7V → 5V for SIM module |
+| LiFePO4 Battery | 3.7V, 2000mAh | Primary power source |
+| Push Button | Momentary tactile switch | SOS / emergency trigger |
 
-1. Add Android app in Firebase Console
-2. Download [google-services.json](https://drive.google.com/drive/folders/1q82avCUL4_bUg-sKYnFH-BknVFZUXBM8?usp=sharing)
-3. Place it in `android/app/google-services.json`
+**Firmware:**
+- Written in C/C++ using the Arduino framework for ESP32
+- Reads GPS NMEA sentences from the SIM7600E-H1C via UART
+- Reads battery percentage from MAX17043 via I²C
+- Detects SOS button press via GPIO interrupt
+- Transmits JSON payload to Firebase Realtime Database via HTTPS POST over 4G LTE
 
-### 3. Configure Firebase for iOS (Optional)
-
-1. Add iOS app in Firebase Console
-2. Download `GoogleService-Info.plist`
-3. Place it in `ios/Runner/GoogleService-Info.plist`
-
-### 4. Realtime Database Security Rules
-
-Set up security rules in Firebase Console:
-
+**Sample Payload:**
 ```json
 {
-  "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
-    "children": {
-      "$childId": {
-        ".read": "auth != null",
-        ".write": "auth != null && (
-          !data.exists() || 
-          data.child('parentId').val() == auth.uid || 
-          !data.child('parentId').exists()
-        )"
-      }
-    }
-  }
+  "latitude": 10.316742,
+  "longitude": 123.890561,
+  "accuracy": 4.8,
+  "speed": 0.0,
+  "altitude": 11.2,
+  "locationType": "gps",
+  "battery": 84,
+  "isSOS": false,
+  "timestamp": 1709123456000
 }
 ```
 
-## ⚙️ Environment Configuration
+---
 
-### Using .env File (Recommended)
+### 2. Firebase Backend
 
-1. **Copy the example file**
-   ```bash
-   cp .env.example .env
-   ```
+Firebase Realtime Database serves as the cloud backbone of the system, providing:
 
-2. **Edit `.env` with your Firebase credentials**
-   ```bash
-   # Your actual Firebase credentials from firebase.txt
-   FIREBASE_API_KEY=AIzaSyD-IB0POwzBhaVzNhDnFG-JewzSm9qS3Es
-   FIREBASE_AUTH_DOMAIN=safetrack-76a0c.firebaseapp.com
-   FIREBASE_PROJECT_ID=safetrack-76a0c
-   # ... etc
-   ```
+- **Real-time data synchronization** between the IoT device and the parent app
+- **Offline persistence** — the app caches the last known state when connectivity is lost
+- **Scalable NoSQL structure** organized by user ID and device code
+- **Firebase Authentication** for secure parent account management
 
-3. **⚠️ IMPORTANT**: Never commit `.env` to Git! It's already in `.gitignore`
+Key data nodes:
+- `linkedDevices/` — stores parent-device relationships and child names
+- `deviceLogs/` — time-series GPS log entries pushed by the IoT device
+- `deviceStatus/` — current battery, SOS flag, and last update timestamp
+- `devicePaths/` — parent-registered safe routes and geofence configurations
 
-### Manual Configuration
+---
 
-Firebase credentials are already configured in:
-- [`lib/firebase_options.dart`](app/SafeTrack/lib/firebase_options.dart) ✅
-- [`android/app/google-services.json`](app/SafeTrack/android/app/google-services.json) ✅
+### 3. Parent Mobile Application
 
-## 🚀 Running the App
+Built with **Flutter (Dart)** for cross-platform compatibility (Android primary target). The app provides:
 
-### On Android Emulator
+- **Dashboard** — summary of all linked children, battery status, and SOS alerts
+- **Live Location** — real-time map view powered by OpenStreetMap and flutter_map
+- **My Children** — device management, linking, and route access
+- **Route Registration** — tap-to-drop waypoint map editor with threshold configuration
+- **AI Assistant** — Gemini-powered chat interface with Firebase-aware context
 
-1. **List available emulators**
-   ```bash
-   flutter emulators
-   ```
+**State management:** Provider pattern  
+**Background processing:** Workmanager for periodic deviation checks when app is closed  
+**Notifications:** flutter_local_notifications for deviation and SOS alerts
 
-2. **Launch emulator**
-   ```bash
-   flutter emulators --launch <emulator_id>
-   # Example: flutter emulators --launch Medium_Phone
-   ```
+---
 
-3. **Run the app**
-   ```bash
-   flutter run
-   ```
+### 4. Geofencing & Deviation Detection
 
-### On Physical Device
+The system implements a **path-based geofencing** approach rather than traditional circular geofences, which are unsuitable for linear routes such as school commutes.
 
-1. **Enable USB Debugging** on your Android device
-2. **Connect via USB**
-3. **Verify connection**
-   ```bash
-   flutter devices
-   ```
-4. **Run the app**
-   ```bash
-   flutter run
-   ```
-5. **Run in debug mode with hot reload**
-   ```bash
-   flutter run -d <device_id>
-   ```
+**Algorithm:**
 
-### On iOS (macOS only)
+1. The parent registers a route as an ordered sequence of GPS waypoints.
+2. For each GPS update from the child's device, the system calculates the **perpendicular distance** from the child's position to the nearest segment of the registered route.
+3. Distance is computed using the **Haversine formula** for accurate great-circle calculations on Earth's curved surface.
+4. If the distance exceeds the parent-configured threshold (20m–200m), a deviation alert is triggered.
 
-```bash
-cd ios
-pod install
-cd ..
-flutter run
+**Why Haversine over Euclidean distance:**  
+Euclidean distance treats GPS coordinates as flat Cartesian coordinates, introducing significant errors over distances greater than a few hundred meters. Haversine correctly accounts for Earth's spherical geometry, providing meter-level accuracy suitable for route monitoring.
+
+---
+
+### 5. AI Assistant
+
+The AI component uses **Google Gemini API** with a retrieval-augmented generation (RAG) approach. The system:
+
+- Fetches real-time device data from Firebase before each query (battery, location, SOS status, recent logs)
+- Injects this data as context into the Gemini system prompt
+- Applies a hardcoded knowledge base covering the system's architecture, tech stack, and algorithms
+- Classifies questions into categories (location, safety, device status, reassurance, child status) and handles broad questions by requesting time-range clarification before generating a response
+- Ends every response with a relevant follow-up question to encourage dialogue
+
+---
+
+## System Flow
+
+```
+Child carries IoT device
+        │
+        ▼
+SIM7600E-H1C reads GPS + sends HTTPS POST
+        │
+        ▼
+Firebase Realtime Database (deviceLogs, deviceStatus)
+        │
+        ├──► Parent App (live stream via onValue listener)
+        │         │
+        │         ├──► Map renders child position
+        │         ├──► PathMonitorService checks deviation
+        │         │         └──► Notification if threshold exceeded
+        │         └──► AI Assistant queries Firebase context
+        │
+        └──► Workmanager (background, every 15 min)
+                  └──► Same deviation check while app closed
 ```
 
-## 🏗️ APK Convertion
+---
 
-**Run Command**
-```bash
-flutter build apk --release
-```
+## Development Environment
 
-**Will generate**
-```bash
-build/app/outputs/flutter-apk/app-release.apk
-```
+| Tool | Version / Detail |
+|---|---|
+| Flutter SDK | ≥ 3.x (Dart ≥ 3.x) |
+| Arduino IDE / PlatformIO | ESP32-C3 firmware development |
+| Firebase Console | Project configuration |
+| Android Studio | IDE for Flutter development |
+| Target Platform | Android (API 21+) |
+| Database | Firebase Realtime Database |
+| AI API | Google Gemini API |
 
-## 📌 Change APP Icon
+---
 
-**Add this to `pubspec.yaml`**
-```bash
-dev_dependencies:
-  flutter_launcher_icons: ^0.14.1
-```
+## Expected Outcomes
 
-```bash
-flutter_icons:
-  android: true
-  ios: true
-  image_path: "assets/icon/app_icon.png"
-```
+- A functional IoT-to-app pipeline with end-to-end latency under 5 seconds under normal 4G connectivity
+- Haversine deviation detection with configurable accuracy suitable for real-world routes
+- A parent-facing AI assistant capable of answering contextual safety questions using live data
+- A complete system demonstrating integration of embedded systems, mobile development, cloud infrastructure, and artificial intelligence
 
-**Run the command**
-```bash
-flutter pub get
-flutter pub run flutter_launcher_icons:main
-```
+---
 
-## 📁 Project Structure
+## Repository Structure
 
 ```
 SafeTrack/
-├── app/
-│   ├── docs/                          # Documentation files
-│   │   ├── PROJECT_REVIEW_FOR_NEW_DEVELOPER.md
-│   │   ├── FLUTTER_VS_REACT_NATIVE_GUIDE.md
-│   │   └── QUICK_START_GUIDE.md
-│   └── SafeTrack/                     # Main Flutter project
+├── app/                        # Flutter parent application
+│   └── SafeTrack/
 │       ├── lib/
-│       │   ├── main.dart              # App entry point
-│       │   ├── firebase_options.dart  # Firebase config
-│       │   ├── auth_service.dart      # Authentication logic
-│       │   ├── screens/               # App screens
-│       │   └── widgets/               # Reusable widgets
-│       ├── android/                   # Android platform code
-│       ├── ios/                       # iOS platform code
-│       └── pubspec.yaml               # Dependencies
-├── .env.example                       # Environment template
-├── .gitignore                         # Git ignore rules
-└── README.md                          # This file
+│       │   ├── main.dart
+│       │   ├── screens/
+│       │   └── services/
+│       └── android/
+│           └── app/src/main/
+│               └── AndroidManifest.xml
+├── firmware/                   # ESP32-C3 Arduino firmware
+│   └── safetrack_firmware.ino
+├── docs/
+│   ├── README_APP.md
+│   ├── README.md
+│   └── USER_MANUAL.md
+└── .env.example
 ```
 
-## 📚 Documentation
-
-- **[Project Review for New Developers](app/docs/PROJECT_REVIEW_FOR_NEW_DEVELOPER.md)** - Comprehensive guide for React Native developers
-- **[Flutter vs React Native Guide](app/docs/FLUTTER_VS_REACT_NATIVE_GUIDE.md)** - Comparison and migration guide
-- **[Quick Start Guide](app/docs/QUICK_START_GUIDE.md)** - Quick setup instructions
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-1. **Emulator fails to start**
-   ```bash
-   flutter clean
-   flutter pub get
-   # Try launching from Android Studio instead
-   ```
-
-2. **Firebase initialization fails**
-   - Ensure Firebase project is set up correctly
-   - Check `firebase_options.dart` has correct credentials
-   - Verify `google-services.json` is in the correct location
-
-3. **Build errors**
-   ```bash
-   cd android
-   ./gradlew clean
-   cd ..
-   flutter clean
-   flutter pub get
-   ```
-
-4. **Location permission issues**
-   - Ensure location permissions are granted in device settings
-   - Check `AndroidManifest.xml` has required permissions
-
-### Getting Help
-
-- Check the [Flutter Documentation](https://flutter.dev/docs)
-- Review the [Firebase Documentation](https://firebase.google.com/docs)
-- Read the project guides in `app/docs/`
-
-## 🔒 Security Best Practices
-
-### Never Commit These Files to Git:
-
-- ✅ `.env` (actual credentials)
-- ✅ `firebase.txt`
-- ✅ `google-services.json`
-- ✅ `GoogleService-Info.plist`
-- ✅ `firebase_options.dart`
-- ✅ `*.keystore` / `*.jks`
-
-### Always Commit These Files:
-
-- ✅ `.env.example` (template without real values)
-- ✅ `.gitignore` (to protect secrets)
-- ✅ `README.md` (documentation)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 👥 Authors
-
-- **Previous Developer** - Initial work
-- **Current Team** - Maintenance and new features
-
-## 🙏 Acknowledgments
-
-- Flutter team for the amazing framework
-- Firebase for backend services
-- OpenStreetMap/Mapbox for map services
-
 ---
 
-**Project Status**: ✅ Ready for Development
+## Acknowledgments
 
-**Last Updated**: October 23, 2025
-
-**Firebase Project**: safetrack-76a0c
-
-**Flutter Version**: SDK ^3.9.2
-
----
-
-For more detailed information, please refer to the documentation in the `app/docs/` directory.
+- Google Firebase for real-time cloud infrastructure
+- Google Gemini for AI API access
+- OpenStreetMap contributors for open mapping data
+- The Flutter and ESP32 open-source communities
