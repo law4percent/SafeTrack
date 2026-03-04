@@ -137,34 +137,23 @@ class _RouteRegistrationScreenState extends State<RouteRegistrationScreen> {
 
   // ── Edit waypoint label ───────────────────────────────────────
   Future<void> _editWaypointLabel(int index) async {
-    final controller =
-        TextEditingController(text: _waypoints[index].label);
+    if (index >= _waypoints.length) return;
+
+    // Use a self-contained StatefulWidget for the dialog so the
+    // TextEditingController lifecycle is fully owned inside it.
+    // This prevents "controller used after disposed" and the
+    // _dependents.isEmpty assertion that occur when the controller
+    // is created/disposed by the parent and shared across an async gap.
     final result = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Label for Waypoint ${index + 1}'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Home, School, Gate...',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
+      useRootNavigator: false,
+      builder: (dialogContext) => _WaypointLabelDialog(
+        initialLabel: _waypoints[index].label,
+        waypointNumber: index + 1,
       ),
     );
-    controller.dispose();
-    if (result != null && mounted) {
+
+    if (result != null && mounted && index < _waypoints.length) {
       setState(() => _waypoints[index] = _Waypoint(
             point: _waypoints[index].point,
             label: result.trim(),
@@ -958,6 +947,71 @@ class RouteListScreen extends StatelessWidget {
 // =============================================================
 // DATA MODELS
 // =============================================================
+// =============================================================
+// WAYPOINT LABEL DIALOG
+// Self-contained StatefulWidget so the TextEditingController
+// is created and disposed entirely within its own lifecycle.
+// This avoids "controller used after disposed" and the
+// _dependents.isEmpty assertion triggered by sharing a controller
+// across an async gap between the parent and dialog context.
+// =============================================================
+class _WaypointLabelDialog extends StatefulWidget {
+  final String initialLabel;
+  final int waypointNumber;
+
+  const _WaypointLabelDialog({
+    required this.initialLabel,
+    required this.waypointNumber,
+  });
+
+  @override
+  State<_WaypointLabelDialog> createState() =>
+      _WaypointLabelDialogState();
+}
+
+class _WaypointLabelDialogState extends State<_WaypointLabelDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialLabel);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Label for Waypoint ${widget.waypointNumber}'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(
+          hintText: 'e.g. Home, School, Gate...',
+          border: OutlineInputBorder(),
+        ),
+        autofocus: true,
+        onSubmitted: (value) => Navigator.of(context).pop(value),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () =>
+              Navigator.of(context).pop(_controller.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 class _Waypoint {
   final LatLng point;
   final String label;
