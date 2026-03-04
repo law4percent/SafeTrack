@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
-import 'dart:async'; // Added to resolve StreamSubscription
+import 'dart:async';
 import '../services/auth_service.dart';
 import '../widgets/quick_actions_grid.dart';
 import 'live_location_screen.dart';
@@ -14,19 +14,17 @@ import 'package:intl/intl.dart';
 import 'activity_log_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
-  
+
   @override
   DashboardScreenState createState() => DashboardScreenState();
 }
 
 class DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
-
   late final List<Widget> _screens;
 
   @override
@@ -40,7 +38,6 @@ class DashboardScreenState extends State<DashboardScreen> {
     ];
   }
 
-  // Public method to change the current tab
   void setCurrentIndex(int index) {
     setState(() {
       _currentIndex = index;
@@ -62,9 +59,9 @@ class DashboardScreenState extends State<DashboardScreen> {
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return Icon(
-                  Icons.school, 
-                  color: Colors.white, 
-                  size: MediaQuery.of(context).size.width * 0.10
+                  Icons.school,
+                  color: Colors.white,
+                  size: MediaQuery.of(context).size.width * 0.10,
                 );
               },
             ),
@@ -72,7 +69,7 @@ class DashboardScreenState extends State<DashboardScreen> {
             Text(
               'SafeTrack - Student Safety',
               style: TextStyle(
-                fontSize: MediaQuery.of(context).size.width * 0.038, 
+                fontSize: MediaQuery.of(context).size.width * 0.038,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
@@ -87,8 +84,7 @@ class DashboardScreenState extends State<DashboardScreen> {
       body: Stack(
         children: [
           _screens[_currentIndex],
-          if (_currentIndex == 0) // Only show on Dashboard Home
-            const QuickActionsGrid(),
+          if (_currentIndex == 0) const QuickActionsGrid(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -98,7 +94,7 @@ class DashboardScreenState extends State<DashboardScreen> {
             setState(() => _currentIndex = index);
           }
         },
-        type: BottomNavigationBarType.fixed, 
+        type: BottomNavigationBarType.fixed,
         selectedItemColor: Colors.blue[700],
         unselectedItemColor: Colors.grey,
         backgroundColor: Colors.white,
@@ -125,7 +121,9 @@ class DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// --- MAIN DASHBOARD HOME WIDGET ---
+// =============================================================
+// DASHBOARD HOME
+// =============================================================
 class DashboardHome extends StatelessWidget {
   const DashboardHome({super.key});
 
@@ -138,7 +136,11 @@ class DashboardHome extends StatelessWidget {
     }
 
     return StreamBuilder<DatabaseEvent>(
-      stream: rtdbInstance.ref('linkedDevices').child(user.uid).child('devices').onValue,
+      stream: rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .onValue,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -148,14 +150,14 @@ class DashboardHome extends StatelessWidget {
           return const DashboardContent(childDevices: []);
         }
 
-        final devicesData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-        
-        // Filter only enabled devices
+        final devicesData =
+            snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+
         final List<Map<String, dynamic>> childDevices = [];
         devicesData.forEach((key, value) {
           final deviceData = value as Map<dynamic, dynamic>;
-          final isEnabled = deviceData['deviceEnabled']?.toString() == 'true';
-          
+          final isEnabled =
+              deviceData['deviceEnabled']?.toString() == 'true';
           if (isEnabled) {
             childDevices.add({
               'deviceCode': key.toString(),
@@ -170,42 +172,35 @@ class DashboardHome extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------
-// --- DASHBOARD UI CONTENT ---
-// ---------------------------------------------
+// =============================================================
+// DASHBOARD CONTENT
+// =============================================================
 class DashboardContent extends StatelessWidget {
   final List<Map<String, dynamic>> childDevices;
   const DashboardContent({super.key, required this.childDevices});
 
   @override
   Widget build(BuildContext context) {
-      final screenWidth = MediaQuery.of(context).size.width;
-      final isTablet = screenWidth > 600;
-      final isDesktop = screenWidth > 1024;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isTablet = screenWidth > 600;
+    final isDesktop = screenWidth > 1024;
 
-      return SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.all(isDesktop ? 24.0 : isTablet ? 20.0 : 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header Section: Monitoring Status
-              _buildMonitoringStatus(isTablet, isDesktop),
-              
-              SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
-              
-              // My Children Section
-              _buildMyChildrenSection(context, isTablet, isDesktop),
-              
-              SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
-              
-              // Add some bottom padding so content isn't hidden behind the floating button
-              SizedBox(height: 100),
-            ],
-          ),
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.all(isDesktop ? 24.0 : isTablet ? 20.0 : 16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildMonitoringStatus(isTablet, isDesktop),
+            SizedBox(height: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
+            _buildMyChildrenSection(context, isTablet, isDesktop),
+            SizedBox(height: isDesktop ? 30.0 : isTablet ? 25.0 : 20.0),
+            const SizedBox(height: 100),
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
   Widget _buildMonitoringStatus(bool isTablet, bool isDesktop) {
     return StreamBuilder<List<Map<String, dynamic>>>(
@@ -218,7 +213,8 @@ class DashboardContent extends StatelessWidget {
               leading: const CircularProgressIndicator(),
               title: Text(
                 'Monitoring your children\'s safety at school',
-                style: TextStyle(fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0),
+                style: TextStyle(
+                    fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0),
               ),
               subtitle: const Text('Checking status...'),
             ),
@@ -226,11 +222,11 @@ class DashboardContent extends StatelessWidget {
         }
 
         final childrenStatus = snapshot.data ?? [];
-        
-        final bool hasEmergency = childrenStatus.any((child) => child['sosActive'] == true);
-        final bool allChildrenOnline = childrenStatus.isNotEmpty && 
+        final bool hasEmergency =
+            childrenStatus.any((child) => child['sosActive'] == true);
+        final bool allChildrenOnline = childrenStatus.isNotEmpty &&
             childrenStatus.every((child) => child['isOnline'] == true);
-        final bool someChildrenOffline = childrenStatus.isNotEmpty && 
+        final bool someChildrenOffline = childrenStatus.isNotEmpty &&
             childrenStatus.any((child) => child['isOnline'] == false);
         final bool noDevices = childrenStatus.isEmpty;
 
@@ -279,7 +275,7 @@ class DashboardContent extends StatelessWidget {
             subtitle: Text(
               statusText,
               style: TextStyle(
-                color: hasEmergency ? Colors.red : statusColor, 
+                color: hasEmergency ? Colors.red : statusColor,
                 fontWeight: FontWeight.bold,
                 fontSize: isDesktop ? 16.0 : isTablet ? 14.0 : 12.0,
               ),
@@ -290,7 +286,8 @@ class DashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildMyChildrenSection(BuildContext context, bool isTablet, bool isDesktop) {
+  Widget _buildMyChildrenSection(
+      BuildContext context, bool isTablet, bool isDesktop) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -302,7 +299,6 @@ class DashboardContent extends StatelessWidget {
           ),
         ),
         SizedBox(height: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
-
         if (childDevices.isEmpty)
           _buildEmptyState(isTablet, isDesktop)
         else
@@ -314,7 +310,8 @@ class DashboardContent extends StatelessWidget {
   Widget _buildEmptyState(bool isTablet, bool isDesktop) {
     return Center(
       child: Padding(
-        padding: EdgeInsets.symmetric(vertical: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
+        padding: EdgeInsets.symmetric(
+            vertical: isDesktop ? 40.0 : isTablet ? 30.0 : 20.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -346,12 +343,13 @@ class DashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildChildrenList(BuildContext context, bool isTablet, bool isDesktop) {
+  Widget _buildChildrenList(
+      BuildContext context, bool isTablet, bool isDesktop) {
     if (isDesktop) {
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
           crossAxisSpacing: 16.0,
           mainAxisSpacing: 16.0,
@@ -366,8 +364,8 @@ class DashboardContent extends StatelessWidget {
         ),
       );
     } else if (isTablet) {
-      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-      
+      final isLandscape =
+          MediaQuery.of(context).orientation == Orientation.landscape;
       if (isLandscape) {
         return GridView.builder(
           shrinkWrap: true,
@@ -388,32 +386,37 @@ class DashboardContent extends StatelessWidget {
         );
       } else {
         return Column(
-          children: childDevices.map((device) => Padding(
-            padding: const EdgeInsets.only(bottom: 12.0),
-            child: ChildCard(
-              deviceCode: device['deviceCode'],
-              deviceData: device['data'],
-              isTablet: isTablet,
-              isDesktop: isDesktop,
-            ),
-          )).toList(),
+          children: childDevices
+              .map((device) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: ChildCard(
+                      deviceCode: device['deviceCode'],
+                      deviceData: device['data'],
+                      isTablet: isTablet,
+                      isDesktop: isDesktop,
+                    ),
+                  ))
+              .toList(),
         );
       }
     } else {
       return Column(
-        children: childDevices.map((device) => Padding(
-          padding: const EdgeInsets.only(bottom: 10.0),
-          child: ChildCard(
-            deviceCode: device['deviceCode'],
-            deviceData: device['data'],
-            isTablet: isTablet,
-            isDesktop: isDesktop,
-          ),
-        )).toList(),
+        children: childDevices
+            .map((device) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10.0),
+                  child: ChildCard(
+                    deviceCode: device['deviceCode'],
+                    deviceData: device['data'],
+                    isTablet: isTablet,
+                    isDesktop: isDesktop,
+                  ),
+                ))
+            .toList(),
       );
     }
   }
 
+  // ✅ FIX: reads SOS from linkedDevices, online status from deviceLogs
   Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() async* {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -421,49 +424,64 @@ class DashboardContent extends StatelessWidget {
       return;
     }
 
-    // Get all device codes
-    final deviceCodes = childDevices.map((d) => d['deviceCode'] as String).toList();
-    
-    // Listen to changes for all devices at once
-    await for (final _ in rtdbInstance.ref('deviceLogs').child(user.uid).onValue) {
-      List<Map<String, dynamic>> statuses = [];
-      
+    final deviceCodes =
+        childDevices.map((d) => d['deviceCode'] as String).toList();
+
+    // Stream trigger: fires when linkedDevices changes (catches SOS immediately)
+    await for (final _ in rtdbInstance
+        .ref('linkedDevices')
+        .child(user.uid)
+        .child('devices')
+        .onValue) {
+      final List<Map<String, dynamic>> statuses = [];
+
       for (final deviceCode in deviceCodes) {
         try {
+          bool isOnline = false;
+          bool hasSOS = false;
+
+          // ✅ SOS lives in linkedDevices/deviceStatus/sos
+          final deviceSnapshot = await rtdbInstance
+              .ref('linkedDevices')
+              .child(user.uid)
+              .child('devices')
+              .child(deviceCode)
+              .child('deviceStatus')
+              .get();
+
+          if (deviceSnapshot.exists) {
+            final deviceStatus =
+                deviceSnapshot.value as Map<dynamic, dynamic>;
+            final sosVal = deviceStatus['sos'];
+            hasSOS = sosVal == true || sosVal == 'true';
+          }
+
+          // ✅ Online status lives in deviceLogs
           final logsSnapshot = await rtdbInstance
               .ref('deviceLogs')
               .child(user.uid)
               .child(deviceCode)
               .get();
-          
-          bool isOnline = false;
-          bool hasSOS = false;
-          
+
           if (logsSnapshot.exists) {
-            final logsData = logsSnapshot.value as Map<dynamic, dynamic>;
-            
-            // Find latest log entry
+            final logsData =
+                logsSnapshot.value as Map<dynamic, dynamic>;
             int highestTimestamp = 0;
-            Map<dynamic, dynamic>? latestLog;
-            
+
             for (var entry in logsData.entries) {
               final logData = entry.value as Map<dynamic, dynamic>;
               final timestamp = logData['lastUpdate'] as int? ?? 0;
-              
               if (timestamp > highestTimestamp) {
                 highestTimestamp = timestamp;
-                latestLog = logData;
               }
             }
-            
-            if (latestLog != null) {
-              final lastUpdate = latestLog['lastUpdate'] as int? ?? 0;
+
+            if (highestTimestamp > 0) {
               final now = DateTime.now().millisecondsSinceEpoch;
-              isOnline = (now - lastUpdate) < 300000; // 5 minutes
-              hasSOS = latestLog['sos'] as bool? ?? false;
+              isOnline = (now - highestTimestamp) < 300000;
             }
           }
-          
+
           statuses.add({
             'deviceCode': deviceCode,
             'sosActive': hasSOS,
@@ -478,15 +496,15 @@ class DashboardContent extends StatelessWidget {
           });
         }
       }
-      
+
       yield statuses;
     }
   }
 }
 
-// ---------------------------------------------
-// --- CHILD CARD WIDGET ---
-// ---------------------------------------------
+// =============================================================
+// CHILD CARD
+// =============================================================
 class ChildCard extends StatefulWidget {
   final String deviceCode;
   final Map<dynamic, dynamic> deviceData;
@@ -494,7 +512,7 @@ class ChildCard extends StatefulWidget {
   final bool isDesktop;
 
   const ChildCard({
-    super.key, 
+    super.key,
     required this.deviceCode,
     required this.deviceData,
     required this.isTablet,
@@ -509,24 +527,47 @@ class _ChildCardState extends State<ChildCard> {
   Map<String, dynamic>? _latestLog;
   bool _hasSOS = false;
   bool _isLoading = true;
-  // StreamSubscription<DatabaseEvent>? _sosListener;
   StreamSubscription<DatabaseEvent>? _logListener;
+  StreamSubscription<DatabaseEvent>? _sosListener; // ✅ NEW
 
   @override
   void initState() {
     super.initState();
     _loadLatestStatus();
-    // _listenToSOS();
     _listenToDeviceLogs();
+    _listenToSOS(); // ✅ NEW
   }
 
   @override
   void dispose() {
-    // _sosListener?.cancel(); // ← ADD THIS
     _logListener?.cancel();
+    _sosListener?.cancel(); // ✅ NEW
     super.dispose();
   }
 
+  // ✅ NEW: watches linkedDevices/.../deviceStatus/sos in real time
+  void _listenToSOS() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _sosListener = rtdbInstance
+        .ref('linkedDevices')
+        .child(user.uid)
+        .child('devices')
+        .child(widget.deviceCode)
+        .child('deviceStatus')
+        .child('sos')
+        .onValue
+        .listen((event) {
+      if (!mounted) return;
+      final sosVal = event.snapshot.value;
+      final isSOS = sosVal == true || sosVal == 'true';
+      debugPrint('🚨 SOS update for ${widget.deviceCode}: $isSOS');
+      setState(() => _hasSOS = isSOS);
+    });
+  }
+
+  // Watches deviceLogs for battery, GPS, location — NOT sos
   void _listenToDeviceLogs() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -541,52 +582,51 @@ class _ChildCardState extends State<ChildCard> {
 
       if (event.snapshot.exists) {
         final logsData = event.snapshot.value as Map<dynamic, dynamic>;
-        
-        // Find the entry with the highest lastUpdate timestamp
+
         MapEntry<dynamic, dynamic>? latestEntry;
         int highestTimestamp = 0;
-        
+
         for (var entry in logsData.entries) {
           final logData = entry.value as Map<dynamic, dynamic>;
           final timestamp = logData['lastUpdate'] as int? ?? 0;
-          
           if (timestamp > highestTimestamp) {
             highestTimestamp = timestamp;
             latestEntry = entry;
           }
         }
-        
+
         if (latestEntry != null) {
-          final latestLogEntry = latestEntry.value as Map<dynamic, dynamic>;
-          
+          final latestLogEntry =
+              latestEntry.value as Map<dynamic, dynamic>;
           setState(() {
             _latestLog = {
               'lastUpdate': latestLogEntry['lastUpdate'] as int? ?? 0,
-              'batteryLevel': (latestLogEntry['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-              'sos': latestLogEntry['sos'] as bool? ?? false,
-              'gpsAvailable': latestLogEntry['gpsAvailable'] as bool? ?? false,
+              'batteryLevel':
+                  (latestLogEntry['batteryLevel'] as num?)?.toDouble() ??
+                      0.0,
+              'gpsAvailable':
+                  latestLogEntry['gpsAvailable'] as bool? ?? false,
               'currentLocation': latestLogEntry['currentLocation'],
               'lastLocation': latestLogEntry['lastLocation'],
             };
-            
-            // Update _hasSOS from latest log
-            _hasSOS = _latestLog!['sos'] as bool? ?? false;
+            // NOTE: _hasSOS is managed by _listenToSOS() only
           });
         }
       } else {
-        // Fallback to cached data
-        final cachedStatus = widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+        // Fallback to cached deviceStatus (non-SOS fields only)
+        final cachedStatus =
+            widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
         if (cachedStatus != null) {
           setState(() {
             _latestLog = {
               'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
-              'batteryLevel': (cachedStatus['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-              'sos': cachedStatus['sos'] as bool? ?? false,
+              'batteryLevel':
+                  (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
+                      0.0,
               'gpsAvailable': false,
               'currentLocation': null,
               'lastLocation': cachedStatus['lastLocation'],
             };
-            _hasSOS = cachedStatus['sos'] as bool? ?? false;
           });
         }
       }
@@ -598,60 +638,76 @@ class _ChildCardState extends State<ChildCard> {
     if (user == null) return;
 
     try {
-      // Get ALL logs and find the one with the highest lastUpdate
+      // ✅ Load initial SOS from linkedDevices
+      final deviceSnapshot = await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(widget.deviceCode)
+          .child('deviceStatus')
+          .get();
+
+      if (deviceSnapshot.exists) {
+        final deviceStatus =
+            deviceSnapshot.value as Map<dynamic, dynamic>;
+        final sosVal = deviceStatus['sos'];
+        _hasSOS = sosVal == true || sosVal == 'true';
+      }
+
+      // Load latest log for battery/GPS/location
       final logsSnapshot = await rtdbInstance
           .ref('deviceLogs')
           .child(user.uid)
           .child(widget.deviceCode)
           .get();
-      
+
       if (mounted) {
         setState(() {
           if (logsSnapshot.exists) {
-            final logsData = logsSnapshot.value as Map<dynamic, dynamic>;
-            
-            // Find the entry with the highest lastUpdate timestamp
+            final logsData =
+                logsSnapshot.value as Map<dynamic, dynamic>;
+
             MapEntry<dynamic, dynamic>? latestEntry;
             int highestTimestamp = 0;
-            
+
             for (var entry in logsData.entries) {
               final logData = entry.value as Map<dynamic, dynamic>;
               final timestamp = logData['lastUpdate'] as int? ?? 0;
-              
               if (timestamp > highestTimestamp) {
                 highestTimestamp = timestamp;
                 latestEntry = entry;
               }
             }
-            
+
             if (latestEntry != null) {
-              final latestLogEntry = latestEntry.value as Map<dynamic, dynamic>;
-              
+              final latestLogEntry =
+                  latestEntry.value as Map<dynamic, dynamic>;
               _latestLog = {
-                'lastUpdate': latestLogEntry['lastUpdate'] as int? ?? 0,
-                'batteryLevel': (latestLogEntry['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-                'sos': latestLogEntry['sos'] as bool? ?? false,
-                'gpsAvailable': latestLogEntry['gpsAvailable'] as bool? ?? false,
+                'lastUpdate':
+                    latestLogEntry['lastUpdate'] as int? ?? 0,
+                'batteryLevel':
+                    (latestLogEntry['batteryLevel'] as num?)
+                            ?.toDouble() ??
+                        0.0,
+                'gpsAvailable':
+                    latestLogEntry['gpsAvailable'] as bool? ?? false,
                 'currentLocation': latestLogEntry['currentLocation'],
                 'lastLocation': latestLogEntry['lastLocation'],
               };
-              
-              // Update _hasSOS from deviceLog
-              _hasSOS = _latestLog!['sos'] as bool? ?? false;
             }
           } else {
-            // Fallback to cached deviceStatus
-            final cachedStatus = widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
+            final cachedStatus = widget.deviceData['deviceStatus']
+                as Map<dynamic, dynamic>?;
             if (cachedStatus != null) {
               _latestLog = {
                 'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
-                'batteryLevel': (cachedStatus['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-                'sos': cachedStatus['sos'] as bool? ?? false,
+                'batteryLevel':
+                    (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
+                        0.0,
                 'gpsAvailable': false,
                 'currentLocation': null,
                 'lastLocation': cachedStatus['lastLocation'],
               };
-              _hasSOS = cachedStatus['sos'] as bool? ?? false;
             }
           }
           _isLoading = false;
@@ -659,37 +715,30 @@ class _ChildCardState extends State<ChildCard> {
       }
     } catch (e) {
       debugPrint('Error loading status for ${widget.deviceCode}: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   bool _isDeviceOnline() {
     if (_latestLog == null) return false;
-    
     final lastUpdate = _latestLog!['lastUpdate'] as int? ?? 0;
     if (lastUpdate == 0) return false;
-    
     final now = DateTime.now().millisecondsSinceEpoch;
-    final difference = now - lastUpdate;
-    
-    return difference < 300000; // 5 minutes in milliseconds
+    return (now - lastUpdate) < 300000;
   }
 
   void _showDeviceInfo(BuildContext context) {
     final addedAt = (widget.deviceData['addedAt'] as num?)?.toInt();
-    final addedDate = addedAt != null 
-        ? DateFormat('MMM dd, yyyy - hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(addedAt))
+    final addedDate = addedAt != null
+        ? DateFormat('MMM dd, yyyy - hh:mm a')
+            .format(DateTime.fromMillisecondsSinceEpoch(addedAt))
         : 'Unknown';
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Row(
+          title: const Row(
             children: [
               Icon(Icons.info_outline, color: Colors.blue),
               SizedBox(width: 8),
@@ -701,16 +750,21 @@ class _ChildCardState extends State<ChildCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildInfoRow('Device Code:', widget.deviceCode),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               _buildInfoRow('Added On:', addedDate),
-              SizedBox(height: 8),
-              _buildInfoRow('Status:', widget.deviceData['deviceEnabled']?.toString() == 'true' ? 'Enabled' : 'Disabled'),
+              const SizedBox(height: 8),
+              _buildInfoRow(
+                'Status:',
+                widget.deviceData['deviceEnabled']?.toString() == 'true'
+                    ? 'Enabled'
+                    : 'Disabled',
+              ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: Text('Close'),
+              child: const Text('Close'),
             ),
           ],
         );
@@ -722,22 +776,18 @@ class _ChildCardState extends State<ChildCard> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-        ),
-        SizedBox(width: 8),
+        Text(label,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 14)),
+        const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            value,
-            style: TextStyle(fontSize: 14),
-          ),
-        ),
+            child: Text(value, style: const TextStyle(fontSize: 14))),
       ],
     );
   }
 
-  void _showFullScreenImage(BuildContext context, String childName, ImageProvider? imageProvider) {
+  void _showFullScreenImage(
+      BuildContext context, String childName, ImageProvider? imageProvider) {
     if (imageProvider == null) return;
 
     showDialog(
@@ -745,7 +795,8 @@ class _ChildCardState extends State<ChildCard> {
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: EdgeInsets.all(widget.isDesktop ? 40.0 : widget.isTablet ? 30.0 : 20.0),
+          insetPadding: EdgeInsets.all(
+              widget.isDesktop ? 40.0 : widget.isTablet ? 30.0 : 20.0),
           child: Stack(
             children: [
               Container(
@@ -768,23 +819,33 @@ class _ChildCardState extends State<ChildCard> {
                             image: imageProvider,
                             fit: BoxFit.contain,
                             errorBuilder: (context, error, stackTrace) {
-                              return Icon(
-                                Icons.error, 
-                                color: Colors.white, 
-                                size: widget.isDesktop ? 60.0 : widget.isTablet ? 50.0 : 40.0
-                              );
+                              return Icon(Icons.error,
+                                  color: Colors.white,
+                                  size: widget.isDesktop
+                                      ? 60.0
+                                      : widget.isTablet
+                                          ? 50.0
+                                          : 40.0);
                             },
                           ),
                         ),
                       ),
                     ),
                     Padding(
-                      padding: EdgeInsets.all(widget.isDesktop ? 20.0 : widget.isTablet ? 16.0 : 12.0),
+                      padding: EdgeInsets.all(widget.isDesktop
+                          ? 20.0
+                          : widget.isTablet
+                              ? 16.0
+                              : 12.0),
                       child: Text(
                         childName,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: widget.isDesktop ? 20.0 : widget.isTablet ? 18.0 : 16.0,
+                          fontSize: widget.isDesktop
+                              ? 20.0
+                              : widget.isTablet
+                                  ? 18.0
+                                  : 16.0,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -792,16 +853,25 @@ class _ChildCardState extends State<ChildCard> {
                   ],
                 ),
               ),
-              
               Positioned(
-                top: widget.isDesktop ? 50.0 : widget.isTablet ? 40.0 : 30.0,
-                right: widget.isDesktop ? 30.0 : widget.isTablet ? 20.0 : 10.0,
+                top: widget.isDesktop
+                    ? 50.0
+                    : widget.isTablet
+                        ? 40.0
+                        : 30.0,
+                right: widget.isDesktop
+                    ? 30.0
+                    : widget.isTablet
+                        ? 20.0
+                        : 10.0,
                 child: IconButton(
-                  icon: Icon(
-                    Icons.close, 
-                    color: Colors.white, 
-                    size: widget.isDesktop ? 35.0 : widget.isTablet ? 30.0 : 25.0
-                  ),
+                  icon: Icon(Icons.close,
+                      color: Colors.white,
+                      size: widget.isDesktop
+                          ? 35.0
+                          : widget.isTablet
+                              ? 30.0
+                              : 25.0),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ),
@@ -826,46 +896,70 @@ class _ChildCardState extends State<ChildCard> {
 
   @override
   Widget build(BuildContext context) {
-    final childName = widget.deviceData['childName']?.toString() ?? 'Unknown Child';
+    final childName =
+        widget.deviceData['childName']?.toString() ?? 'Unknown Child';
     final yearLevel = widget.deviceData['yearLevel']?.toString() ?? '';
     final section = widget.deviceData['section']?.toString() ?? '';
-    final imageBase64 = widget.deviceData['imageProfileBase64']?.toString();
-    
+    final imageBase64 =
+        widget.deviceData['imageProfileBase64']?.toString();
+
     final batteryLevel = _latestLog?['batteryLevel'] as double? ?? 0.0;
-    final sosActive = _hasSOS || (_latestLog?['sos'] as bool? ?? false);
+    final sosActive = _hasSOS; // ✅ solely driven by _listenToSOS()
     final isOnline = _isDeviceOnline();
-    
-    // Build grade/section string
+
     String gradeSection = '';
     if (yearLevel.isNotEmpty) {
       gradeSection = 'Grade $yearLevel';
-      if (section.isNotEmpty) {
-        gradeSection += ' - $section';
-      }
+      if (section.isNotEmpty) gradeSection += ' - $section';
     } else if (section.isNotEmpty) {
       gradeSection = section;
     }
-    
+
     final ImageProvider? imageProvider = _getImageProvider(imageBase64);
-    final Color avatarBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.2);
+    final Color avatarBgColor =
+        Theme.of(context).primaryColor.withValues(alpha: 0.2);
 
     if (_isLoading) {
       return Card(
         elevation: 2,
-        margin: EdgeInsets.only(bottom: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 8.0),
+        margin: EdgeInsets.only(
+            bottom: widget.isDesktop
+                ? 16.0
+                : widget.isTablet
+                    ? 12.0
+                    : 8.0),
         child: Padding(
-          padding: EdgeInsets.all(widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
+          padding: EdgeInsets.all(widget.isDesktop
+              ? 16.0
+              : widget.isTablet
+                  ? 12.0
+                  : 10.0),
           child: Row(
             children: [
               CircleAvatar(
-                radius: widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0,
+                radius: widget.isDesktop
+                    ? 56.0
+                    : widget.isTablet
+                        ? 48.0
+                        : 40.0,
                 backgroundColor: avatarBgColor,
                 backgroundImage: imageProvider,
-                child: imageProvider == null 
-                    ? Icon(Icons.person, size: (widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0) * 0.6)
+                child: imageProvider == null
+                    ? Icon(Icons.person,
+                        size: (widget.isDesktop
+                                ? 56.0
+                                : widget.isTablet
+                                    ? 48.0
+                                    : 40.0) *
+                            0.6)
                     : null,
               ),
-              SizedBox(width: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
+              SizedBox(
+                  width: widget.isDesktop
+                      ? 16.0
+                      : widget.isTablet
+                          ? 12.0
+                          : 10.0),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -873,12 +967,16 @@ class _ChildCardState extends State<ChildCard> {
                     Text(
                       childName,
                       style: TextStyle(
-                        fontSize: widget.isDesktop ? 18.0 : widget.isTablet ? 16.0 : 14.0,
+                        fontSize: widget.isDesktop
+                            ? 18.0
+                            : widget.isTablet
+                                ? 16.0
+                                : 14.0,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    SizedBox(height: 8),
-                    CircularProgressIndicator(strokeWidth: 2),
+                    const SizedBox(height: 8),
+                    const CircularProgressIndicator(strokeWidth: 2),
                   ],
                 ),
               ),
@@ -907,22 +1005,29 @@ class _ChildCardState extends State<ChildCard> {
     bool sosActive,
     bool isOnline,
     double batteryLevel,
-    // lastLocation parameter removed
     ImageProvider? imageProvider,
     Color avatarBgColor,
   ) {
-    final avatarSize = widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0;
-    final iconSize = widget.isDesktop ? 20.0 : widget.isTablet ? 18.0 : 16.0;
-    final fontSizeTitle = widget.isDesktop ? 18.0 : widget.isTablet ? 16.0 : 14.0;
-    final fontSizeSubtitle = widget.isDesktop ? 14.0 : widget.isTablet ? 13.0 : 12.0;
+    final avatarSize =
+        widget.isDesktop ? 56.0 : widget.isTablet ? 48.0 : 40.0;
+    final iconSize =
+        widget.isDesktop ? 20.0 : widget.isTablet ? 18.0 : 16.0;
+    final fontSizeTitle =
+        widget.isDesktop ? 18.0 : widget.isTablet ? 16.0 : 14.0;
+    final fontSizeSubtitle =
+        widget.isDesktop ? 14.0 : widget.isTablet ? 13.0 : 12.0;
 
     return Card(
       elevation: sosActive ? 8 : 2,
-      margin: EdgeInsets.only(bottom: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 8.0),
+      margin: EdgeInsets.only(
+          bottom: widget.isDesktop
+              ? 16.0
+              : widget.isTablet
+                  ? 12.0
+                  : 8.0),
       color: sosActive ? Colors.red.shade50 : null,
       child: InkWell(
         onTap: () {
-          // Navigate to Activity Log for this specific device
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -937,54 +1042,74 @@ class _ChildCardState extends State<ChildCard> {
         child: Stack(
           children: [
             Container(
-              decoration: sosActive ? BoxDecoration(
-                border: Border.all(color: Colors.red, width: 3),
-                borderRadius: BorderRadius.circular(12),
-              ) : null,
+              decoration: sosActive
+                  ? BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 3),
+                      borderRadius: BorderRadius.circular(12),
+                    )
+                  : null,
               child: Padding(
-                padding: EdgeInsets.all(widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
+                padding: EdgeInsets.all(widget.isDesktop
+                    ? 16.0
+                    : widget.isTablet
+                        ? 12.0
+                        : 10.0),
                 child: Row(
                   children: [
+                    // Avatar
                     GestureDetector(
-                      onTap: () => _showFullScreenImage(context, childName, imageProvider),
+                      onTap: () => _showFullScreenImage(
+                          context, childName, imageProvider),
                       child: Stack(
                         children: [
                           CircleAvatar(
                             radius: avatarSize,
-                            backgroundColor: sosActive ? Colors.red.withValues(alpha: 0.3) : avatarBgColor,
+                            backgroundColor: sosActive
+                                ? Colors.red.withValues(alpha: 0.3)
+                                : avatarBgColor,
                             backgroundImage: imageProvider,
-                            child: imageProvider == null 
+                            child: imageProvider == null
                                 ? Icon(
-                                    sosActive ? Icons.warning : Icons.person, 
+                                    sosActive
+                                        ? Icons.warning
+                                        : Icons.person,
                                     size: avatarSize * 0.6,
-                                    color: sosActive ? Colors.red : Colors.blueGrey,
-                                  ) 
+                                    color: sosActive
+                                        ? Colors.red
+                                        : Colors.blueGrey,
+                                  )
                                 : null,
                           ),
                           if (sosActive && imageProvider != null)
                             Positioned.fill(
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.red.withValues(alpha: 0.3),
+                                  color:
+                                      Colors.red.withValues(alpha: 0.3),
                                   shape: BoxShape.circle,
                                 ),
-                                child: Icon(
-                                  Icons.warning, 
-                                  color: Colors.white, 
-                                  size: avatarSize * 0.5
-                                ),
+                                child: Icon(Icons.warning,
+                                    color: Colors.white,
+                                    size: avatarSize * 0.5),
                               ),
                             ),
                         ],
                       ),
                     ),
-                    
-                    SizedBox(width: widget.isDesktop ? 16.0 : widget.isTablet ? 12.0 : 10.0),
-                    
+
+                    SizedBox(
+                        width: widget.isDesktop
+                            ? 16.0
+                            : widget.isTablet
+                                ? 12.0
+                                : 10.0),
+
+                    // Info column
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Name + info button
                           Row(
                             children: [
                               Expanded(
@@ -992,28 +1117,37 @@ class _ChildCardState extends State<ChildCard> {
                                   childName,
                                   style: TextStyle(
                                     fontSize: fontSizeTitle,
-                                    fontWeight: sosActive ? FontWeight.bold : FontWeight.w600,
-                                    color: sosActive ? Colors.red : Colors.black87,
+                                    fontWeight: sosActive
+                                        ? FontWeight.bold
+                                        : FontWeight.w600,
+                                    color: sosActive
+                                        ? Colors.red
+                                        : Colors.black87,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
-                                icon: Icon(Icons.info_outline, size: iconSize, color: Colors.blue),
-                                onPressed: () => _showDeviceInfo(context),
+                                icon: Icon(Icons.info_outline,
+                                    size: iconSize, color: Colors.blue),
+                                onPressed: () =>
+                                    _showDeviceInfo(context),
                                 padding: EdgeInsets.zero,
-                                constraints: BoxConstraints(),
+                                constraints: const BoxConstraints(),
                               ),
                             ],
                           ),
-                          
+
+                          // Grade/section
                           if (gradeSection.isNotEmpty) ...[
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Row(
                               children: [
-                                Icon(Icons.school, size: iconSize, color: Colors.grey[600]),
-                                SizedBox(width: 4),
+                                Icon(Icons.school,
+                                    size: iconSize,
+                                    color: Colors.grey[600]),
+                                const SizedBox(width: 4),
                                 Text(
                                   gradeSection,
                                   style: TextStyle(
@@ -1025,128 +1159,159 @@ class _ChildCardState extends State<ChildCard> {
                               ],
                             ),
                           ],
-                          
-                          SizedBox(height: 6),
-                          
-                          // Status Row
+
+                          const SizedBox(height: 6),
+
+                          // Online status
                           Row(
                             children: [
-                              Icon(
-                                Icons.circle,
-                                color: isOnline ? Colors.green : Colors.grey,
-                                size: iconSize * 0.7,
-                              ),
-                              SizedBox(width: 4),
+                              Icon(Icons.circle,
+                                  color: isOnline
+                                      ? Colors.green
+                                      : Colors.grey,
+                                  size: iconSize * 0.7),
+                              const SizedBox(width: 4),
                               Text(
                                 isOnline ? 'Active' : 'Offline',
                                 style: TextStyle(
-                                  color: isOnline ? Colors.green : Colors.grey,
+                                  color: isOnline
+                                      ? Colors.green
+                                      : Colors.grey,
                                   fontSize: fontSizeSubtitle,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
-                          
-                          SizedBox(height: 4),
-                          
-                          // Battery Level (Percentage)
+
+                          const SizedBox(height: 4),
+
+                          // Battery
                           if (batteryLevel > 0)
                             Row(
                               children: [
                                 Icon(
-                                  batteryLevel > 80 ? Icons.battery_full :
-                                  batteryLevel > 50 ? Icons.battery_std :
-                                  batteryLevel > 20 ? Icons.battery_charging_full :
-                                  Icons.battery_alert,
+                                  batteryLevel > 80
+                                      ? Icons.battery_full
+                                      : batteryLevel > 50
+                                          ? Icons.battery_std
+                                          : batteryLevel > 20
+                                              ? Icons.battery_charging_full
+                                              : Icons.battery_alert,
                                   size: iconSize,
-                                  color: batteryLevel < 20 ? Colors.red : 
-                                        batteryLevel < 50 ? Colors.orange :
-                                        Colors.green,
+                                  color: batteryLevel < 20
+                                      ? Colors.red
+                                      : batteryLevel < 50
+                                          ? Colors.orange
+                                          : Colors.green,
                                 ),
-                                SizedBox(width: 4),
+                                const SizedBox(width: 4),
                                 Text(
-                                  '${batteryLevel.round()}%',  // Changed from toStringAsFixed(0)
+                                  '${batteryLevel.round()}%',
                                   style: TextStyle(
                                     fontSize: fontSizeSubtitle,
-                                    color: batteryLevel < 20 ? Colors.red : 
-                                          batteryLevel < 50 ? Colors.orange :
-                                          Colors.grey[700],
+                                    color: batteryLevel < 20
+                                        ? Colors.red
+                                        : batteryLevel < 50
+                                            ? Colors.orange
+                                            : Colors.grey[700],
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
                             ),
-                          
-                          SizedBox(height: 4),
 
-                          // GPS Status
+                          const SizedBox(height: 4),
+
+                          // GPS status
                           Row(
                             children: [
                               Icon(
-                                _latestLog?['gpsAvailable'] == true ? Icons.gps_fixed : Icons.gps_off,
+                                _latestLog?['gpsAvailable'] == true
+                                    ? Icons.gps_fixed
+                                    : Icons.gps_off,
                                 size: iconSize,
-                                color: _latestLog?['gpsAvailable'] == true ? Colors.green : Colors.orange,
+                                color: _latestLog?['gpsAvailable'] == true
+                                    ? Colors.green
+                                    : Colors.orange,
                               ),
-                              SizedBox(width: 4),
+                              const SizedBox(width: 4),
                               Text(
-                                _latestLog?['gpsAvailable'] == true ? 'GPS Available' : 'GPS Unavailable',
+                                _latestLog?['gpsAvailable'] == true
+                                    ? 'GPS Available'
+                                    : 'GPS Unavailable',
                                 style: TextStyle(
                                   fontSize: fontSizeSubtitle,
-                                  color: _latestLog?['gpsAvailable'] == true ? Colors.green : Colors.orange,
+                                  color: _latestLog?['gpsAvailable'] ==
+                                          true
+                                      ? Colors.green
+                                      : Colors.orange,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
 
-                          // Location Info
-                          if (_latestLog != null) ...[
-                            Builder(
-                              builder: (context) {
-                                final currentLoc = _latestLog!['currentLocation'] as Map<dynamic, dynamic>?;
-                                final lastLoc = _latestLog!['lastLocation'] as Map<dynamic, dynamic>?;
-                                
-                                final location = currentLoc ?? lastLoc;
-                                
-                                if (location != null) {
-                                  final lat = (location['latitude'] as num?)?.toDouble() ?? 0.0;
-                                  final lon = (location['longitude'] as num?)?.toDouble() ?? 0.0;
-                                  final status = currentLoc?['status'] as String? ?? 'unknown';
-                                  
-                                  return Row(
-                                    children: [
-                                      Icon(
-                                        status == 'success' ? Icons.location_on : Icons.location_off,
-                                        size: iconSize,
-                                        color: status == 'success' ? Colors.blue : Colors.orange,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          'Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)} ${status == 'cached' ? '(Cached)' : ''}',
-                                          style: TextStyle(
-                                            fontSize: fontSizeSubtitle * 0.9,
-                                            color: Colors.grey[600],
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                          // Location coordinates
+                          if (_latestLog != null)
+                            Builder(builder: (context) {
+                              final currentLoc =
+                                  _latestLog!['currentLocation']
+                                      as Map<dynamic, dynamic>?;
+                              final lastLoc = _latestLog!['lastLocation']
+                                  as Map<dynamic, dynamic>?;
+                              final location = currentLoc ?? lastLoc;
+
+                              if (location != null) {
+                                final lat =
+                                    (location['latitude'] as num?)
+                                            ?.toDouble() ??
+                                        0.0;
+                                final lon =
+                                    (location['longitude'] as num?)
+                                            ?.toDouble() ??
+                                        0.0;
+                                final status =
+                                    currentLoc?['status'] as String? ??
+                                        'unknown';
+                                return Row(
+                                  children: [
+                                    Icon(
+                                      status == 'success'
+                                          ? Icons.location_on
+                                          : Icons.location_off,
+                                      size: iconSize,
+                                      color: status == 'success'
+                                          ? Colors.blue
+                                          : Colors.orange,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        'Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)}'
+                                        '${status == 'cached' ? ' (Cached)' : ''}',
+                                        style: TextStyle(
+                                          fontSize: fontSizeSubtitle * 0.9,
+                                          color: Colors.grey[600],
                                         ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ],
-                                  );
-                                }
-                                return SizedBox.shrink();
-                              },
-                            ),
-                          ],
-                          
+                                    ),
+                                  ],
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            }),
+
                           // Tap hint
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           Row(
                             children: [
-                              Icon(Icons.touch_app, size: iconSize * 0.8, color: Colors.blue[300]),
-                              SizedBox(width: 4),
+                              Icon(Icons.touch_app,
+                                  size: iconSize * 0.8,
+                                  color: Colors.blue[300]),
+                              const SizedBox(width: 4),
                               Text(
                                 'Tap to view activity log',
                                 style: TextStyle(
@@ -1160,15 +1325,23 @@ class _ChildCardState extends State<ChildCard> {
                         ],
                       ),
                     ),
-                    
-                    // Status Chip
+
+                    // SOS / SAFE chip
                     Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
                           padding: EdgeInsets.symmetric(
-                            horizontal: widget.isDesktop ? 16 : widget.isTablet ? 12 : 10,
-                            vertical: widget.isDesktop ? 8 : widget.isTablet ? 6 : 5,
+                            horizontal: widget.isDesktop
+                                ? 16
+                                : widget.isTablet
+                                    ? 12
+                                    : 10,
+                            vertical: widget.isDesktop
+                                ? 8
+                                : widget.isTablet
+                                    ? 6
+                                    : 5,
                           ),
                           decoration: BoxDecoration(
                             color: sosActive ? Colors.red : Colors.green,

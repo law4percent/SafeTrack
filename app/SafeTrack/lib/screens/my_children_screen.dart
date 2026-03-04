@@ -1,11 +1,11 @@
 // lib/screens/my_children_screen.dart
-// Remove the deviceStatus field from linkedDevices when linking a new device
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
+import 'route_registration_screen.dart'; // ✅ NEW
 
 // Firebase Realtime Database instance
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
@@ -66,7 +66,10 @@ class MyChildrenScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Devices', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'My Devices',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.blueAccent,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -98,10 +101,7 @@ class MyChildrenScreen extends StatelessWidget {
                   SizedBox(height: 5),
                   Text(
                     'Manage your connected safety devices',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.white70),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -117,18 +117,26 @@ class MyChildrenScreen extends StatelessWidget {
                   ),
                 ),
                 child: StreamBuilder<DatabaseEvent>(
-                  stream: rtdbInstance.ref('linkedDevices').child(user.uid).child('devices').onValue,
+                  stream: rtdbInstance
+                      .ref('linkedDevices')
+                      .child(user.uid)
+                      .child('devices')
+                      .onValue,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    
-                    if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+
+                    if (!snapshot.hasData ||
+                        snapshot.data!.snapshot.value == null) {
                       return _buildEmptyState();
                     }
 
-                    final devicesData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                    final deviceCodes = devicesData.keys.map((key) => key.toString()).toList();
+                    final devicesData = snapshot.data!.snapshot.value
+                        as Map<dynamic, dynamic>;
+                    final deviceCodes = devicesData.keys
+                        .map((key) => key.toString())
+                        .toList();
 
                     if (deviceCodes.isEmpty) {
                       return _buildEmptyState();
@@ -147,7 +155,10 @@ class MyChildrenScreen extends StatelessWidget {
         foregroundColor: Colors.blueAccent,
         elevation: 4,
         icon: const Icon(Icons.add),
-        label: const Text('LINK DEVICE', style: TextStyle(fontWeight: FontWeight.bold)),
+        label: const Text(
+          'LINK DEVICE',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
@@ -174,10 +185,7 @@ class MyChildrenScreen extends StatelessWidget {
             Text(
               'Tap the LINK DEVICE button below\nto connect your first safety device',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
             ),
           ],
         ),
@@ -219,22 +227,25 @@ class MyChildrenScreen extends StatelessWidget {
   }
 }
 
+// =============================================================
+// DEVICE CARD
+// =============================================================
 class DeviceCard extends StatelessWidget {
   final String deviceCode;
 
-  const DeviceCard({
-    super.key, 
-    required this.deviceCode,
-  });
+  const DeviceCard({super.key, required this.deviceCode});
 
   void _removeDevice(BuildContext context) async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove Device?'),
-        content: const Text('Are you sure you want to remove this device? This will unlink it from your account.'),
+        content: const Text(
+          'Are you sure you want to remove this device? '
+          'This will unlink it from your account.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -242,7 +253,8 @@ class DeviceCard extends StatelessWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+            child: const Text('Remove',
+                style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -254,7 +266,6 @@ class DeviceCard extends StatelessWidget {
       final user = authService.currentUser;
       if (user == null) return;
 
-      // STEP 1: Remove from linkedDevices
       await rtdbInstance
           .ref('linkedDevices')
           .child(user.uid)
@@ -262,17 +273,15 @@ class DeviceCard extends StatelessWidget {
           .child(deviceCode)
           .remove();
 
-      // STEP 2: Unclaim device in realDevices (clear actionOwnerID)
       await rtdbInstance
           .ref('realDevices')
           .child(deviceCode)
-          .update({
-        'actionOwnerID': '',
-      });
-      
+          .update({'actionOwnerID': ''});
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device removed and unclaimed successfully')),
+          const SnackBar(
+              content: Text('Device removed and unclaimed successfully')),
         );
       }
     } catch (e) {
@@ -285,27 +294,33 @@ class DeviceCard extends StatelessWidget {
   }
 
   void _editDevice(BuildContext context, LinkedDevice device) async {
-    final nameController = TextEditingController(text: device.childName);
-    final yearLevelController = TextEditingController(text: device.yearLevel ?? '');
-    final sectionController = TextEditingController(text: device.section ?? '');
+    final nameController =
+        TextEditingController(text: device.childName);
+    final yearLevelController =
+        TextEditingController(text: device.yearLevel ?? '');
+    final sectionController =
+        TextEditingController(text: device.section ?? '');
     String? updatedImageBase64 = device.imageProfileBase64;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (statefulContext, setState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20)),
           child: Container(
             padding: const EdgeInsets.all(24),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.edit, size: 40, color: Colors.blueAccent),
+                  const Icon(Icons.edit,
+                      size: 40, color: Colors.blueAccent),
                   const SizedBox(height: 10),
                   const Text(
                     'Edit Device',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 20),
                   GestureDetector(
@@ -328,10 +343,14 @@ class DeviceCard extends StatelessWidget {
                       children: [
                         CircleAvatar(
                           radius: 50,
-                          backgroundImage: updatedImageBase64 != null && updatedImageBase64!.isNotEmpty
-                              ? MemoryImage(base64Decode(updatedImageBase64!))
+                          backgroundImage: updatedImageBase64 !=
+                                      null &&
+                                  updatedImageBase64!.isNotEmpty
+                              ? MemoryImage(
+                                  base64Decode(updatedImageBase64!))
                               : null,
-                          child: updatedImageBase64 == null || updatedImageBase64!.isEmpty
+                          child: updatedImageBase64 == null ||
+                                  updatedImageBase64!.isEmpty
                               ? const Icon(Icons.person, size: 50)
                               : null,
                         ),
@@ -343,9 +362,11 @@ class DeviceCard extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: Colors.blueAccent,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                              border: Border.all(
+                                  color: Colors.white, width: 2),
                             ),
-                            child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                            child: const Icon(Icons.camera_alt,
+                                size: 16, color: Colors.white),
                           ),
                         ),
                       ],
@@ -388,14 +409,16 @@ class DeviceCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => Navigator.pop(statefulContext, false),
+                          onPressed: () =>
+                              Navigator.pop(statefulContext, false),
                           child: const Text('CANCEL'),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => Navigator.pop(statefulContext, true),
+                          onPressed: () =>
+                              Navigator.pop(statefulContext, true),
                           child: const Text('SAVE'),
                         ),
                       ),
@@ -424,9 +447,10 @@ class DeviceCard extends StatelessWidget {
     }
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
+      final authService =
+          Provider.of<AuthService>(context, listen: false);
       final user = authService.currentUser;
-      
+
       if (user == null) {
         nameController.dispose();
         yearLevelController.dispose();
@@ -463,24 +487,32 @@ class DeviceCard extends StatelessWidget {
       sectionController.dispose();
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<AuthService>(context, listen: false).currentUser;
+    final user =
+        Provider.of<AuthService>(context, listen: false).currentUser;
     if (user == null) return const SizedBox();
 
     return StreamBuilder<DatabaseEvent>(
-      stream: rtdbInstance.ref('linkedDevices').child(user.uid).child('devices').child(deviceCode).onValue,
+      stream: rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .onValue,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildLoadingCard();
         }
-        
-        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+
+        if (!snapshot.hasData ||
+            snapshot.data!.snapshot.value == null) {
           return _buildOfflineCard(context);
         }
 
-        final deviceData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        final deviceData =
+            snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
         final device = LinkedDevice.fromRTDB(deviceCode, deviceData);
         return _buildDeviceCard(device, context);
       },
@@ -491,13 +523,15 @@ class DeviceCard extends StatelessWidget {
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Colors.grey.shade200,
           child: const CircularProgressIndicator(strokeWidth: 2),
         ),
-        title: Text(deviceCode, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(deviceCode,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: const Text('Loading device information...'),
       ),
     );
@@ -507,13 +541,15 @@ class DeviceCard extends StatelessWidget {
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       child: ListTile(
         leading: const CircleAvatar(
           backgroundColor: Colors.grey,
           child: Icon(Icons.device_unknown, color: Colors.white),
         ),
-        title: Text(deviceCode, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(deviceCode,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: const Text('Device not connected'),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -527,14 +563,18 @@ class DeviceCard extends StatelessWidget {
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       child: Column(
         children: [
-          // Switch at the top
+          // Enable/disable toggle header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: device.deviceEnabled ? Colors.green.shade50 : Colors.grey.shade100,
+              color: device.deviceEnabled
+                  ? Colors.green.shade50
+                  : Colors.grey.shade100,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
@@ -544,29 +584,38 @@ class DeviceCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  device.deviceEnabled ? 'Device Enabled' : 'Device Disabled',
+                  device.deviceEnabled
+                      ? 'Device Enabled'
+                      : 'Device Disabled',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: device.deviceEnabled ? Colors.green.shade700 : Colors.grey.shade600,
+                    color: device.deviceEnabled
+                        ? Colors.green.shade700
+                        : Colors.grey.shade600,
                   ),
                 ),
                 Switch(
                   value: device.deviceEnabled,
-                  onChanged: (value) => _toggleDeviceEnabled(context, value),
+                  onChanged: (value) =>
+                      _toggleDeviceEnabled(context, value),
                   activeThumbColor: Colors.green,
                 ),
               ],
             ),
           ),
-          // Device info
+
+          // Device info row
           ListTile(
             leading: CircleAvatar(
               radius: 28,
-              backgroundImage: device.imageProfileBase64 != null && device.imageProfileBase64!.isNotEmpty
-                  ? MemoryImage(base64Decode(device.imageProfileBase64!))
+              backgroundImage: device.imageProfileBase64 != null &&
+                      device.imageProfileBase64!.isNotEmpty
+                  ? MemoryImage(
+                      base64Decode(device.imageProfileBase64!))
                   : null,
-              child: device.imageProfileBase64 == null || device.imageProfileBase64!.isEmpty
+              child: device.imageProfileBase64 == null ||
+                      device.imageProfileBase64!.isEmpty
                   ? const Icon(Icons.person, size: 30)
                   : null,
             ),
@@ -575,12 +624,16 @@ class DeviceCard extends StatelessWidget {
               children: [
                 Text(
                   device.childName,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                if (device.yearLevel != null && device.yearLevel!.isNotEmpty)
+                if (device.yearLevel != null &&
+                    device.yearLevel!.isNotEmpty)
                   Text(
-                    'Grade ${device.yearLevel}${device.section != null && device.section!.isNotEmpty ? " - ${device.section}" : ""}',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    'Grade ${device.yearLevel}'
+                    '${device.section != null && device.section!.isNotEmpty ? " - ${device.section}" : ""}',
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.grey),
                   ),
               ],
             ),
@@ -591,12 +644,29 @@ class DeviceCard extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // ✅ NEW: Route management button
                 IconButton(
-                  icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 20),
+                  icon: const Icon(Icons.route,
+                      color: Colors.green, size: 20),
+                  tooltip: 'Manage Routes',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RouteListScreen(
+                        deviceCode: device.deviceCode,
+                        childName: device.childName,
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined,
+                      color: Colors.blueAccent, size: 20),
                   onPressed: () => _editDevice(context, device),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  icon: const Icon(Icons.delete_outline,
+                      color: Colors.red, size: 20),
                   onPressed: () => _removeDevice(context),
                 ),
               ],
@@ -608,9 +678,9 @@ class DeviceCard extends StatelessWidget {
   }
 
   void _toggleDeviceEnabled(BuildContext context, bool value) async {
-    final authService = Provider.of<AuthService>(context, listen: false);
+    final authService =
+        Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
-    
     if (user == null) return;
 
     try {
@@ -619,28 +689,32 @@ class DeviceCard extends StatelessWidget {
           .child(user.uid)
           .child('devices')
           .child(deviceCode)
-          .update({
-        'deviceEnabled': value.toString(),
-      });
+          .update({'deviceEnabled': value.toString()});
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(value ? 'Device enabled' : 'Device disabled'),
-            backgroundColor: value ? Colors.green : Colors.grey,
+            content: Text(
+                value ? 'Device enabled' : 'Device disabled'),
+            backgroundColor:
+                value ? Colors.green : Colors.grey,
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update device: $e')),
+          SnackBar(
+              content: Text('Failed to update device: $e')),
         );
       }
     }
   }
 }
 
+// =============================================================
+// ADD DEVICE DIALOG
+// =============================================================
 class AddDeviceDialog extends StatefulWidget {
   final String parentId;
   const AddDeviceDialog({super.key, required this.parentId});
@@ -665,227 +739,225 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
       maxHeight: 512,
       imageQuality: 85,
     );
-
     if (image != null) {
       final bytes = await image.readAsBytes();
-      setState(() {
-        _imageBase64 = base64Encode(bytes);
-      });
+      setState(() => _imageBase64 = base64Encode(bytes));
     }
   }
 
-Future<void> _linkDevice() async {
-  final deviceCode = _codeController.text.trim().toUpperCase();
-  final childName = _nameController.text.trim();
-  final yearLevel = _yearLevelController.text.trim();
-  final section = _sectionController.text.trim();
+  Future<void> _linkDevice() async {
+    final deviceCode = _codeController.text.trim().toUpperCase();
+    final childName = _nameController.text.trim();
+    final yearLevel = _yearLevelController.text.trim();
+    final section = _sectionController.text.trim();
 
-  if (deviceCode.isEmpty) {
-    _showSnackBar('Please enter device code', Colors.orange);
-    return;
-  }
+    if (deviceCode.isEmpty) {
+      _showSnackBar('Please enter device code', Colors.orange);
+      return;
+    }
+    if (childName.isEmpty) {
+      _showSnackBar('Please enter child name', Colors.orange);
+      return;
+    }
 
-  if (childName.isEmpty) {
-    _showSnackBar('Please enter child name', Colors.orange);
-    return;
-  }
+    setState(() => _isLoading = true);
 
-  setState(() => _isLoading = true);
+    try {
+      final authService =
+          Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      if (user == null) throw Exception('User not logged in');
 
-  try {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final user = authService.currentUser;
-    
-    if (user == null) throw Exception('User not logged in');
+      // STEP 1: Check if device exists in realDevices
+      final realDeviceSnapshot =
+          await rtdbInstance.ref('realDevices').child(deviceCode).get();
 
-    // STEP 1: Check if device exists in realDevices
-    final realDeviceSnapshot = await rtdbInstance
-        .ref('realDevices')
-        .child(deviceCode)
-        .get();
-
-    if (!realDeviceSnapshot.exists) {
-      if (mounted) setState(() => _isLoading = false);
-      
-      // Show detailed error dialog
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.red),
-                SizedBox(width: 8),
-                Text('Device Not Found'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'The device code "$deviceCode" does not exist in the system.',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                const Text('Please verify:'),
-                const SizedBox(height: 8),
-                const Text('✓ Device code is typed correctly'),
-                const Text('✓ Device is registered in the system'),
-                const Text('✓ No extra spaces in the code'),
-                const Text('✓ Code matches exactly what\'s on the device'),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.blue, size: 20),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Contact support if you believe this device should exist.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
+      if (!realDeviceSnapshot.exists) {
+        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Device Not Found'),
+                ],
               ),
-            ],
-          ),
-        );
-      }
-      return;
-    }
-
-    // STEP 2: Check if device is already claimed
-    final realDeviceData = realDeviceSnapshot.value as Map<dynamic, dynamic>;
-    final actionOwnerID = realDeviceData['actionOwnerID']?.toString() ?? '';
-
-    if (actionOwnerID.isNotEmpty) {
-      if (mounted) setState(() => _isLoading = false);
-      
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.block, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('Device Already Claimed'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Device "$deviceCode" is already linked to another account.',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(8),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'The device code "$deviceCode" does not exist in the system.',
+                    style:
+                        const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange, size: 20),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'The current owner must unlink this device before you can use it.',
-                          style: TextStyle(fontSize: 12),
+                  const SizedBox(height: 16),
+                  const Text('Please verify:'),
+                  const SizedBox(height: 8),
+                  const Text('✓ Device code is typed correctly'),
+                  const Text('✓ Device is registered in the system'),
+                  const Text('✓ No extra spaces in the code'),
+                  const Text(
+                      '✓ Code matches exactly what\'s on the device'),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline,
+                            color: Colors.blue, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Contact support if you believe this device should exist.',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
                 ),
               ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    // STEP 3: Check if current user already has this device linked
-    final userDeviceSnapshot = await rtdbInstance
-        .ref('linkedDevices')
-        .child(user.uid)
-        .child('devices')
-        .child(deviceCode)
-        .get();
+      // STEP 2: Check if device is already claimed
+      final realDeviceData =
+          realDeviceSnapshot.value as Map<dynamic, dynamic>;
+      final actionOwnerID =
+          realDeviceData['actionOwnerID']?.toString() ?? '';
 
-    if (userDeviceSnapshot.exists) {
-      if (mounted) setState(() => _isLoading = false);
-      _showSnackBar('❌ Device already linked to your account!', Colors.red);
-      return;
-    }
+      if (actionOwnerID.isNotEmpty) {
+        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.block, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Device Already Claimed'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Device "$deviceCode" is already linked to another account.',
+                    style:
+                        const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline,
+                            color: Colors.orange, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'The current owner must unlink this device before you can use it.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
 
-    // STEP 4: Claim the device by updating realDevices
-    await rtdbInstance
-        .ref('realDevices')
-        .child(deviceCode)
-        .update({
-      'actionOwnerID': user.uid,
-    });
+      // STEP 3: Check if current user already has this device
+      final userDeviceSnapshot = await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .get();
 
-    // STEP 5: Add device to user's linkedDevices
-    await rtdbInstance
-        .ref('linkedDevices')
-        .child(user.uid)
-        .child('devices')
-        .child(deviceCode)
-        .set({
-      'childName': childName,
-      'yearLevel': yearLevel,
-      'section': section,
-      'imageProfileBase64': _imageBase64 ?? '',
-      'deviceEnabled': 'true',
-      'addedAt': ServerValue.timestamp,
-      'deviceStatus': {
-        'lastUpdate': 0,
-        'batteryLevel': 0,
-        'lastLocation': {
-          'latitude': 0,
-          'longitude': 0,
-          'altitude': 0,
+      if (userDeviceSnapshot.exists) {
+        if (mounted) setState(() => _isLoading = false);
+        _showSnackBar(
+            '❌ Device already linked to your account!', Colors.red);
+        return;
+      }
+
+      // STEP 4: Claim the device
+      await rtdbInstance
+          .ref('realDevices')
+          .child(deviceCode)
+          .update({'actionOwnerID': user.uid});
+
+      // STEP 5: Add to linkedDevices
+      await rtdbInstance
+          .ref('linkedDevices')
+          .child(user.uid)
+          .child('devices')
+          .child(deviceCode)
+          .set({
+        'childName': childName,
+        'yearLevel': yearLevel,
+        'section': section,
+        'imageProfileBase64': _imageBase64 ?? '',
+        'deviceEnabled': 'true',
+        'addedAt': ServerValue.timestamp,
+        'deviceStatus': {
+          'lastUpdate': 0,
+          'batteryLevel': 0,
+          'lastLocation': {
+            'latitude': 0,
+            'longitude': 0,
+            'altitude': 0,
+          },
+          'sos': 'false',
         },
-        'sos': 'false'
-      }
-    });
+      });
 
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    _showSnackBar('✅ Successfully linked device: $deviceCode', Colors.green);
-
-  } catch (e) {
-    if (mounted) setState(() => _isLoading = false);
-    _showSnackBar('❌ Failed to link device: ${e.toString()}', Colors.red);
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _showSnackBar(
+          '✅ Successfully linked device: $deviceCode', Colors.green);
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+      _showSnackBar(
+          '❌ Failed to link device: ${e.toString()}', Colors.red);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
-}
 
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -900,18 +972,21 @@ Future<void> _linkDevice() async {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         padding: const EdgeInsets.all(24),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.qr_code_scanner, size: 40, color: Colors.blueAccent),
+              const Icon(Icons.qr_code_scanner,
+                  size: 40, color: Colors.blueAccent),
               const SizedBox(height: 10),
               const Text(
                 'Link New Device',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
               GestureDetector(
@@ -935,9 +1010,11 @@ Future<void> _linkDevice() async {
                         decoration: BoxDecoration(
                           color: Colors.blueAccent,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                          border:
+                              Border.all(color: Colors.white, width: 2),
                         ),
-                        child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                        child: const Icon(Icons.camera_alt,
+                            size: 16, color: Colors.white),
                       ),
                     ),
                   ],
@@ -991,7 +1068,9 @@ Future<void> _linkDevice() async {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                      onPressed: _isLoading
+                          ? null
+                          : () => Navigator.of(context).pop(),
                       child: const Text('CANCEL'),
                     ),
                   ),
@@ -1003,13 +1082,14 @@ Future<void> _linkDevice() async {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2),
                             )
                           : const Text('LINK DEVICE'),
                     ),
                   ),
                 ],
-              )
+              ),
             ],
           ),
         ),
