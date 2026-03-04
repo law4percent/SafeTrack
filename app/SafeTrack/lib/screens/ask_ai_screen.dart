@@ -1,5 +1,6 @@
 // app/SafeTrack/lib/screens/ask_ai_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart'; // ✅ NEW
 import '../services/gemini_service.dart';
 
 class AskAIScreen extends StatefulWidget {
@@ -10,7 +11,8 @@ class AskAIScreen extends StatefulWidget {
 }
 
 class _AskAIScreenState extends State<AskAIScreen> {
-  final TextEditingController _questionController = TextEditingController();
+  final TextEditingController _questionController =
+      TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Map<String, dynamic>> _conversation = [];
   final GeminiService _geminiService = GeminiService();
@@ -51,8 +53,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
     _scrollToBottom();
 
     try {
-      // GeminiService now fetches Firebase context internally
-      final response = await _geminiService.getResponse(question);
+      // ✅ FIXED: was getResponse(), correct method is sendMessage()
+      final response = await _geminiService.sendMessage(question);
 
       if (!mounted) return;
       setState(() {
@@ -69,7 +71,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
       setState(() {
         _conversation.add({
           'type': 'ai',
-          'content': 'Sorry, I encountered an error. Please try again.',
+          'content':
+              'Sorry, I encountered an error. Please try again.',
           'time': DateTime.now(),
         });
         _isLoading = false;
@@ -85,6 +88,17 @@ class _AskAIScreenState extends State<AskAIScreen> {
         title: const Text('Ask AI Assistant'),
         backgroundColor: Colors.blue[800],
         foregroundColor: Colors.white,
+        actions: [
+          // Reset conversation button
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'New conversation',
+            onPressed: () {
+              setState(() => _conversation.clear());
+              _geminiService.resetConversation();
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -94,7 +108,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
             color: Colors.blue[50],
             child: Row(
               children: [
-                Icon(Icons.auto_awesome, size: 20, color: Colors.blue[800]),
+                Icon(Icons.auto_awesome,
+                    size: 20, color: Colors.blue[800]),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -117,8 +132,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
                 : ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(16),
-                    itemCount:
-                        _conversation.length + (_isLoading ? 1 : 0),
+                    itemCount: _conversation.length +
+                        (_isLoading ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (_isLoading &&
                           index == _conversation.length) {
@@ -135,8 +150,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.grey[50],
-              border:
-                  Border(top: BorderSide(color: Colors.grey[300]!)),
+              border: Border(
+                  top: BorderSide(color: Colors.grey[300]!)),
             ),
             child: Row(
               children: [
@@ -153,9 +168,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
                       ),
                       contentPadding:
                           const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                              horizontal: 16, vertical: 12),
                     ),
                     onSubmitted: _isLoading ? null : _askAI,
                     textInputAction: TextInputAction.send,
@@ -170,10 +183,12 @@ class _AskAIScreenState extends State<AskAIScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2),
                         )
-                      : Icon(Icons.send, color: Colors.blue[800]),
+                      : Icon(Icons.send,
+                          color: Colors.blue[800]),
                   onPressed: _isLoading
                       ? null
-                      : () => _askAI(_questionController.text),
+                      : () =>
+                          _askAI(_questionController.text),
                 ),
               ],
             ),
@@ -183,6 +198,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
     );
   }
 
+  // ── Empty state ──────────────────────────────────────────────
   Widget _buildEmptyState() {
     return Center(
       child: SingleChildScrollView(
@@ -190,7 +206,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.auto_awesome, size: 60, color: Colors.blue[300]),
+            Icon(Icons.auto_awesome,
+                size: 60, color: Colors.blue[300]),
             const SizedBox(height: 16),
             const Text(
               'Ask me anything!',
@@ -200,27 +217,25 @@ class _AskAIScreenState extends State<AskAIScreen> {
             const SizedBox(height: 8),
             Text(
               'I have access to your children\'s real-time data',
-              style:
-                  TextStyle(color: Colors.grey[600], fontSize: 13),
+              style: TextStyle(
+                  color: Colors.grey[600], fontSize: 13),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            Text(
-              'Try asking:',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
+            Text('Try asking:',
+                style: TextStyle(color: Colors.grey[600])),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               alignment: WrapAlignment.center,
               children: [
-                _buildSuggestionChip('How is my child?'),
+                _buildSuggestionChip('Where is my child?'),
                 _buildSuggestionChip('Is anyone\'s SOS active?'),
                 _buildSuggestionChip('Check battery levels'),
                 _buildSuggestionChip('Is my child online?'),
+                _buildSuggestionChip('Has my child arrived at school?'),
                 _buildSuggestionChip('Who made this app?'),
-                _buildSuggestionChip('Safety tips for children'),
               ],
             ),
           ],
@@ -233,8 +248,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
     return GestureDetector(
       onTap: () => _askAI(text),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.blue[50],
           borderRadius: BorderRadius.circular(20),
@@ -248,8 +263,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
             const SizedBox(width: 6),
             Text(
               text,
-              style:
-                  TextStyle(color: Colors.blue[900], fontSize: 13),
+              style: TextStyle(
+                  color: Colors.blue[900], fontSize: 13),
             ),
           ],
         ),
@@ -257,6 +272,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
     );
   }
 
+  // ── Message bubble ───────────────────────────────────────────
   Widget _buildMessageBubble(Map<String, dynamic> message) {
     final isUser = message['type'] == 'user';
     final time = message['time'] as DateTime;
@@ -299,20 +315,66 @@ class _AskAIScreenState extends State<AskAIScreen> {
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(12),
                       topRight: const Radius.circular(12),
-                      bottomLeft: Radius.circular(isUser ? 12 : 0),
-                      bottomRight: Radius.circular(isUser ? 0 : 12),
+                      bottomLeft:
+                          Radius.circular(isUser ? 12 : 0),
+                      bottomRight:
+                          Radius.circular(isUser ? 0 : 12),
                     ),
                   ),
-                  child: Text(
-                    message['content'],
-                    style: TextStyle(
-                      color: isUser
-                          ? Colors.blue[900]
-                          : Colors.black87,
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
+                  // ✅ USER bubble: plain Text (no markdown needed)
+                  // ✅ AI bubble: MarkdownBody renders **bold**,
+                  //    bullet lists, headers correctly
+                  child: isUser
+                      ? Text(
+                          message['content'],
+                          style: TextStyle(
+                            color: Colors.blue[900],
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
+                        )
+                      : MarkdownBody(
+                          data: message['content'],
+                          selectable: true,
+                          styleSheet: MarkdownStyleSheet(
+                            // Body text
+                            p: TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
+                            // Bold
+                            strong: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            // Italic
+                            em: const TextStyle(
+                              fontStyle: FontStyle.italic,
+                              color: Colors.black87,
+                            ),
+                            // Bullet list items
+                            listBullet: TextStyle(
+                              color: Colors.blue[800],
+                              fontSize: 14,
+                            ),
+                            // Code blocks
+                            code: TextStyle(
+                              backgroundColor:
+                                  Colors.grey[200],
+                              color: Colors.blue[900],
+                              fontSize: 13,
+                              fontFamily: 'monospace',
+                            ),
+                            codeblockDecoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                            ),
+                            // Spacing between paragraphs
+                            blockSpacing: 8,
+                          ),
+                        ),
                 ),
               ),
               if (isUser) ...[
@@ -338,8 +400,8 @@ class _AskAIScreenState extends State<AskAIScreen> {
             ),
             child: Text(
               timeString,
-              style: TextStyle(
-                  fontSize: 10, color: Colors.grey[500]),
+              style:
+                  TextStyle(fontSize: 10, color: Colors.grey[500]),
             ),
           ),
         ],
@@ -347,6 +409,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
     );
   }
 
+  // ── Loading bubble ───────────────────────────────────────────
   Widget _buildLoadingMessage() {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
