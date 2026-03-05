@@ -122,10 +122,71 @@ enum _QuestionCategory {
 // =============================================================
 // GEMINI SERVICE
 // =============================================================
-class GeminiService {
-  static const String _apiUrl =
+// =============================================================
+// AVAILABLE AI MODELS
+// Shown to the user as friendly options in the model picker.
+// Free-tier limits: RPM = requests per minute, RPD = per day.
+// =============================================================
+class GeminiModel {
+  final String id;          // API model ID
+  final String displayName; // Friendly name shown in UI
+  final String description; // One-line plain-language description
+  final String quota;       // e.g. "10 RPM · higher daily limit"
+  final String badge;       // Short badge label e.g. "Fastest"
+
+  const GeminiModel({
+    required this.id,
+    required this.displayName,
+    required this.description,
+    required this.quota,
+    required this.badge,
+  });
+
+  String get endpointUrl =>
       'https://generativelanguage.googleapis.com/v1beta/models/'
-      'gemini-2.5-flash:generateContent';
+      '$id:generateContent';
+}
+
+const List<GeminiModel> kGeminiModels = [
+  GeminiModel(
+    id: 'gemini-2.5-flash-lite',
+    displayName: 'Quick & Efficient',
+    description: 'Fastest responses, highest daily limit. '
+        'Best when you need quick answers.',
+    quota: '10 requests/min · most daily requests',
+    badge: 'Fastest',
+  ),
+  GeminiModel(
+    id: 'gemini-2.5-flash',
+    displayName: 'Balanced',
+    description: 'Great balance of speed and detail. '
+        'Recommended for most questions.',
+    quota: '5 requests/min · high daily limit',
+    badge: 'Recommended',
+  ),
+  GeminiModel(
+    id: 'gemini-3-flash',
+    displayName: 'Most Detailed',
+    description: 'Deepest reasoning and most thorough answers. '
+        'Use when you need the most accurate response.',
+    quota: '5 requests/min · lower daily limit',
+    badge: 'Most Accurate',
+  ),
+];
+
+// =============================================================
+// GEMINI SERVICE
+// =============================================================
+class GeminiService {
+  // Default model — Balanced is the best starting point
+  GeminiModel _selectedModel = kGeminiModels[1];
+
+  GeminiModel get selectedModel => _selectedModel;
+
+  /// Called by the UI when the parent picks a different model.
+  void setModel(GeminiModel model) {
+    _selectedModel = model;
+  }
 
   final List<Map<String, dynamic>> _conversationHistory = [];
   bool _awaitingTimeRangeClarification = false;
@@ -848,7 +909,7 @@ $firebaseContext
     });
 
     final response = await http.post(
-      Uri.parse('$_apiUrl?key=$apiKey'),
+      Uri.parse('${_selectedModel.endpointUrl}?key=$apiKey'),
       headers: {'Content-Type': 'application/json'},
       body: body,
     );
