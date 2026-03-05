@@ -225,6 +225,53 @@ class NotificationService {
     await _plugin.cancelAll();
   }
 
+  // Feature 2 — Behavior alert (late, absent, anomaly)
+  Future<void> showBehaviorAlert({
+    required String childName,
+    required String type,
+    required String message,
+  }) async {
+    final titles = {
+      'late':    '⏰ Late Arrival — $childName',
+      'absent':  '📋 Possible Absence — $childName',
+      'anomaly': '⚠️ Unusual Activity — $childName',
+    };
+    final title = titles[type] ?? '🔔 Alert — $childName';
+    const channel = AndroidNotificationChannel(
+      'safetrack_behavior',
+      'Behavior Alerts',
+      description: 'Alerts for late arrivals, absences, and anomalies',
+      importance: Importance.high,
+    );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    await _plugin.show(
+      type.hashCode & 0x7FFFFFFF,
+      title,
+      message,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: childName,
+    );
+    debugPrint('[NotificationService] Behavior alert shown: $type for $childName');
+  }
+
   // ── Tap handlers ──────────────────────────────────────────────
 
   static void _onNotificationTapped(NotificationResponse response) {

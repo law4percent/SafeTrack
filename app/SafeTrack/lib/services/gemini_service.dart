@@ -125,7 +125,7 @@ enum _QuestionCategory {
 class GeminiService {
   static const String _apiUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/'
-      'gemini-2.5-flash:generateContent';
+      'gemini-2.0-flash:generateContent';
 
   final List<Map<String, dynamic>> _conversationHistory = [];
   bool _awaitingTimeRangeClarification = false;
@@ -339,7 +339,7 @@ class GeminiService {
   int _daysInMonth(int year, int month) =>
       DateTime(year, month + 1, 0).day;
 
-  // ── Safe int cast (handles int, double, String) ────────────
+  // ── Safe int cast ────────────────────────────────────────────
   int _toInt(dynamic val) {
     if (val == null) return 0;
     if (val is int) return val;
@@ -348,7 +348,47 @@ class GeminiService {
     return 0;
   }
 
-  // ── Fetch Firebase context ────────────────────────────────────
+  // ── Feature 3: Human-readable timestamp ──────────────────────
+  // Converts raw millisecond timestamps to natural language.
+  // Examples: "today at 07:30", "yesterday at 15:45", "03 Jan 2025, 08:00"
+  String _formatTimestamp(int ms) {
+    if (ms <= 0) return 'unknown time';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1)  return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} minutes ago';
+    if (diff.inHours < 24 && dt.day == now.day) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return 'today at $h:$m';
+    }
+    final yesterday = now.subtract(const Duration(days: 1));
+    if (dt.day == yesterday.day &&
+        dt.month == yesterday.month &&
+        dt.year == yesterday.year) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return 'yesterday at $h:$m';
+    }
+    final day  = dt.day.toString().padLeft(2, '0');
+    final mon  = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'][dt.month - 1];
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$day $mon ${dt.year}, $h:$m';
+  }
+
+  // ── Feature 3: Friendly battery description ───────────────────
+  String _batteryLabel(dynamic raw) {
+    final pct = (raw is num) ? raw.toInt() : int.tryParse(raw.toString()) ?? -1;
+    if (pct < 0)  return 'unknown';
+    if (pct <= 10) return '$pct% — critically low, charge immediately';
+    if (pct <= 25) return '$pct% — low, please charge soon';
+    if (pct <= 50) return '$pct% — moderate';
+    return '$pct% — good';
+  }
+
   Future<String> _buildFirebaseContext({
     String originalQuestion = '',
   }) async {
@@ -390,6 +430,32 @@ class GeminiService {
         buf.writeln('### Child: $childName (Device Code: $deviceCode)');
         buf.writeln('- Tracking: ${isEnabled ? "Enabled" : "Disabled"}');
 
+        // Feature 1 — School schedule (parent-configured)
+        // AI reads this directly — no need to ask parent for school hours.
+        final timeIn  = meta['schoolTimeIn']?.toString()  ?? '';
+        final timeOut = meta['schoolTimeOut']?.toString() ?? '';
+        if (timeIn.isNotEmpty && timeOut.isNotEmpty) {
+          buf.writeln('- School Time In:  $timeIn (24hr)');
+          buf.writeln('- School Time Out: $timeOut (24hr)');
+          // Compute whether device is currently in school hours
+          try {
+            final now = DateTime.now();
+            List<int> splitHHMM(String hhmm) {
+              final p = hhmm.split(':');
+              return [int.parse(p[0]), int.parse(p[1])];
+            }
+            final inP  = splitHHMM(timeIn);
+            final outP = splitHHMM(timeOut);
+            final schoolStart = DateTime(now.year, now.month, now.day, inP[0], inP[1]);
+            final schoolEnd   = DateTime(now.year, now.month, now.day, outP[0], outP[1]);
+            final inSchool    = now.isAfter(schoolStart) && now.isBefore(schoolEnd);
+            buf.writeln('- Currently within school hours: ${inSchool ? "Yes" : "No"}');
+            buf.writeln('- School day ended today: ${now.isAfter(schoolEnd) ? "Yes" : "No"}');
+          } catch (_) {}
+        } else {
+          buf.writeln('- School schedule: Not configured by parent');
+        }
+
         // ── Device status (battery, SOS) ─────────────────────
         // ✅ Reads from correct RTDB path:
         //    linkedDevices/{uid}/devices/{deviceCode}/deviceStatus
@@ -404,32 +470,40 @@ class GeminiService {
               .get();
           if (statusSnap.exists) {
             final s = statusSnap.value as Map<dynamic, dynamic>;
-            final battery  = s['batteryLevel'] ?? 'N/A';
-            final isSOS    = s['sos'] as bool? ?? false;
-            final lastTs   = _toInt(s['lastUpdate']);
+            final isSOS   = s['sos'] as bool? ?? false;
+            final lastTs  = _toInt(s['lastUpdate']);
             final isOnline = lastTs > 0 &&
                 DateTime.now()
                     .difference(DateTime.fromMillisecondsSinceEpoch(lastTs))
                     .inMinutes < 5;
-            final minsAgo  = lastTs > 0
-                ? DateTime.now()
-                    .difference(DateTime.fromMillisecondsSinceEpoch(lastTs))
-                    .inMinutes
-                : -1;
-            buf.writeln('- Battery: $battery%');
+            // Feature 3 — human-readable battery + timestamp
+            final batteryDesc = _batteryLabel(s['batteryLevel']);
+            final lastSeenDesc = lastTs > 0
+                ? _formatTimestamp(lastTs)
+                : 'never';
+            // Feature 5 — explicit flags so AI can trigger actionable steps
+            final batteryPct = (s['batteryLevel'] is num)
+                ? (s['batteryLevel'] as num).toInt() : -1;
+            buf.writeln('- Battery: $batteryDesc');
+            buf.writeln('- Battery level (numeric): $batteryPct');
+            buf.writeln('- Battery is low: ${batteryPct >= 0 && batteryPct <= 10 ? "YES — action needed" : "No"}');
             buf.writeln('- SOS Active: ${isSOS ? "YES — EMERGENCY" : "No"}');
-            buf.writeln('- Online: ${isOnline ? "Online" : minsAgo >= 0 ? "Offline (last seen ${minsAgo}min ago)" : "Unknown"}');
+            buf.writeln('- Device online: ${isOnline ? "Yes" : "No"}');
+            buf.writeln('- Last update received: $lastSeenDesc');
+            buf.writeln('- Needs attention: ${!isOnline ? "YES — device offline" : "No"}');
             // Surface lastLocation from deviceStatus
             final ll = s['lastLocation'];
             if (ll is Map) {
               final llLat = (ll['latitude']  as num?)?.toDouble() ?? 0;
               final llLng = (ll['longitude'] as num?)?.toDouble() ?? 0;
               if (llLat != 0 && llLng != 0) {
-                buf.writeln('- Last known (status node): Lat $llLat, Lng $llLng');
+                buf.writeln('- Last known position: Lat $llLat, Lng $llLng');
               }
             }
           } else {
-            buf.writeln('- Battery: No status data yet (device not yet synced)');
+            buf.writeln('- Battery: Device has not synced yet');
+            buf.writeln('- Device online: No');
+            buf.writeln('- Needs attention: YES — no sync data');
           }
         } catch (e) {
           buf.writeln('- Battery: Error reading status');
@@ -488,12 +562,11 @@ class GeminiService {
                   return ts >= startMs && ts <= endMs;
                 }).toList();
 
-                final startDt =
-                    DateTime.fromMillisecondsSinceEpoch(startMs);
-                final endDt =
-                    DateTime.fromMillisecondsSinceEpoch(endMs);
+                // Feature 3 — format date range nicely
+                final startFmt = _formatTimestamp(startMs);
+                final endFmt   = _formatTimestamp(endMs);
                 buf.writeln(
-                    '- Date range filter applied: $startDt → $endDt');
+                    '- Date range filter applied: $startFmt → $endFmt');
                 buf.writeln(
                     '- Matching log entries: ${filtered.length}');
               } else {
@@ -519,10 +592,13 @@ class GeminiService {
                     (latest['speed'] as num?)?.toDouble() ?? 0;
                 final ts =
                     (latest['timestamp'] as num?)?.toInt() ?? 0;
-                final dt =
-                    DateTime.fromMillisecondsSinceEpoch(ts);
-                final minsAgo =
-                    DateTime.now().difference(dt).inMinutes;
+                // Feature 3 — formatted timestamp instead of raw DateTime
+                final tsFormatted = _formatTimestamp(ts);
+                final locationTypeDesc = type == 'gps'
+                    ? 'live GPS fix'
+                    : type == 'cached'
+                        ? 'last known position (GPS unavailable)'
+                        : type;
 
                 if (lat == null ||
                     lng == null ||
@@ -531,13 +607,12 @@ class GeminiService {
                       '- GPS: Device has not reported a valid location yet');
                 } else {
                   buf.writeln(
-                      '- Most recent location in range: Lat $lat, Lng $lng');
-                  buf.writeln('  • Location type: $type');
-                  buf.writeln('  • Accuracy: ${acc}m');
+                      '- Most recent location: Lat $lat, Lng $lng');
+                  buf.writeln('  • Recorded: $tsFormatted');
+                  buf.writeln('  • Fix type: $locationTypeDesc');
+                  buf.writeln('  • Accuracy: approx. ${acc}m');
                   buf.writeln(
-                      '  • Speed: ${spd.toStringAsFixed(1)} m/s');
-                  buf.writeln(
-                      '  • Timestamp: $dt ($minsAgo min ago)');
+                      '  • Speed: ${spd.toStringAsFixed(1)} km/h');
                 }
 
                 // Show up to 5 historical entries for context
@@ -554,13 +629,13 @@ class GeminiService {
                         (r['longitude'] as num?)?.toDouble();
                     final rTs =
                         (r['timestamp'] as num?)?.toInt() ?? 0;
-                    final rDt =
-                        DateTime.fromMillisecondsSinceEpoch(rTs);
+                    // Feature 3 — formatted history timestamps
+                    final rFmt = _formatTimestamp(rTs);
                     if (rLat != null &&
                         rLng != null &&
                         !(rLat == 0 && rLng == 0)) {
                       buf.writeln(
-                          '  • Lat $rLat, Lng $rLng — $rDt');
+                          '  • Lat $rLat, Lng $rLng — $rFmt');
                     }
                   }
                 }
@@ -604,6 +679,42 @@ class GeminiService {
           }
         } catch (_) {}
 
+        // Feature 2 — Recent alerts from alertLogs (last 5, for AI context)
+        try {
+          final alertsSnap = await FirebaseDatabase.instance
+              .ref('alertLogs')
+              .child(user.uid)
+              .child(deviceCode)
+              .get();
+          if (alertsSnap.exists && alertsSnap.value is Map) {
+            final raw = alertsSnap.value as Map<dynamic, dynamic>;
+            final alerts = raw.entries
+                .where((e) => e.value is Map)
+                .map((e) => e.value as Map<dynamic, dynamic>)
+                .toList();
+            alerts.sort((a, b) {
+              final ta = (a['timestamp'] as num?)?.toInt() ?? 0;
+              final tb = (b['timestamp'] as num?)?.toInt() ?? 0;
+              return tb.compareTo(ta);
+            });
+            final recent = alerts.take(5).toList();
+            if (recent.isNotEmpty) {
+              buf.writeln('- Recent alerts (${recent.length} shown):');
+              for (final a in recent) {
+                final aType = a['type']?.toString() ?? 'alert';
+                final aTs   = _toInt(a['timestamp'] as dynamic);
+                final aTsFmt = _formatTimestamp(aTs);
+                final aMsg  = a['message']?.toString() ?? '';
+                buf.writeln('  • [$aType] $aTsFmt — $aMsg');
+              }
+            } else {
+              buf.writeln('- Recent alerts: None');
+            }
+          } else {
+            buf.writeln('- Recent alerts: None on record');
+          }
+        } catch (_) {}
+
         buf.writeln();
       }
       return buf.toString();
@@ -621,33 +732,78 @@ class GeminiService {
     );
 
     final systemPrompt = '''
-You are SafeTrack AI — a warm, knowledgeable, and reassuring assistant built into the SafeTrack child safety monitoring app. You help parents of elementary school students understand their child's safety, location, and device status in real time.
+You are SafeTrack AI — a caring, warm assistant inside the SafeTrack child safety app. You speak directly with parents of elementary school students. Your job is to help them understand their child's location, safety, and device status clearly and calmly.
 
-## Core Behavior Rules
+---
 
-1. **Use real data.** Always base answers on the Live Device Data section below. Never guess or fabricate values.
+## Core Rules
 
-2. **Ask for clarification on broad questions.** If a parent asks something vague or time-range-dependent (e.g., "How was my child's behavior?", "Show me movement history"), ask them which time period they mean (today, yesterday, last week, last month) BEFORE answering.
+1. **Always use real data from the Live Device Data section below.** Never guess, estimate, or fabricate values. If a value is missing, say so honestly and kindly.
 
-3. **School hours awareness.** You do not know the child's exact school schedule. If a question like "Is my child in school?" or "Has my child arrived?" is time-sensitive, ask the parent to confirm school hours:
-   > "Could you let me know your child's school hours so I can give you a more accurate answer?"
+2. **School schedule is already known — never ask the parent for school hours.** The parent has configured school Time In and Time Out in the app. Use those values directly when answering questions like "Is my child in school?" or "Has my child arrived?".
 
-4. **Always end with a follow-up question.** Every single response must end with one relevant follow-up question in bold, on its own line. Example:
-   > **Would you like me to check the battery status as well?**
+3. **Ask for clarification on broad time questions.** If a parent asks something vague like "How was my child's behavior?" or "Show me the history" without specifying when, ask which period they mean (today, yesterday, last week, last month) BEFORE answering.
 
-5. **Answer technical questions accurately.** Use the SafeTrack Knowledge Base to answer questions about algorithms, hardware, tech stack, and architecture.
+4. **Every response must end with one follow-up question in bold.** This helps the parent know what to check next. Example:
+   > **Would you like me to check the device's battery status?**
 
-6. **Be honest about limitations.** If you cannot determine something from the available data, say so clearly.
+5. **Answer technical questions using the SafeTrack Knowledge Base.** Translate technical details into plain language when speaking to parents.
 
-7. **Tone:** Warm, clear, and reassuring. These are parents concerned about their children — not developers.
+6. **Be honest about limitations.** If data is unavailable, say so warmly and suggest what the parent can do.
 
-8. **The project Created by:** This app was created by Computer Engineering students: Good Elyza, Samontanez Jemarie Mae B., and Agting Jonnamaye A. from CTU Danao Campus.
+7. **The project Created by:** This app was created by Computer Engineering students: (a) Elyza Camille Good, (b) Jemarie Mae B. Samontanez, and (c) Jonnamaye A. Agting from CTU Danao Campus.
+
+---
+
+## Tone Rules (Feature 4 — Reassuring, Parent-Friendly)
+
+You are speaking to a parent who may be anxious. Always:
+
+- **Use warm, everyday language.** Never use technical jargon like "null", "N/A", "epoch", "timestamp", "ms", "API", "JSON", or "RTDB" in responses.
+- **Translate device values into plain English:**
+  - Battery 85% → "The device is well charged at 85%."
+  - Battery 12% → "The battery is getting low at 12%. Please charge it tonight."
+  - Battery 5% → "The battery is critically low at 5% — please charge the device immediately."
+  - locationType "gps" → "This is a live GPS reading."
+  - locationType "cached" → "This is the last known location — the GPS was temporarily unavailable."
+  - Online: No → "The device hasn't sent an update recently."
+- **Never say the child is missing or in danger** unless SOS is active. Use cautious, reassuring language instead.
+- **When SOS is active**, respond with calm urgency: acknowledge the alert, give location, and suggest calling the child or going to the location immediately.
+- **Always reassure the parent when things are normal.** Example: "Everything looks good — [Name] is on her registered route and the device is working well."
+
+---
+
+## Actionable Steps (Feature 5)
+
+When the device is offline, battery is low, or data is stale, always provide clear numbered steps the parent can take. Do not just report the problem — guide them.
+
+**Template for offline device:**
+> I don't have a recent location update from [Name]'s device. The last update I received was [formatted time]. Since no deviation alerts were triggered at that time, [Name] was within the registered route.
+>
+> To restore real-time tracking, please:
+> 1. Make sure the device is powered on (look for the green LED blinking every 30 seconds).
+> 2. Check that the SIM card has an active Globe data balance.
+> 3. Move to an area with better cellular signal if indoors.
+
+**Template for low battery:**
+> [Name]'s device battery is at [X]%. To avoid losing tracking:
+> 1. Collect the device as soon as your child arrives home.
+> 2. Connect it to a USB charger tonight.
+> 3. A full charge takes about 2–3 hours.
+
+**Template for SOS:**
+> 🚨 [Name] has triggered an SOS alert. Her last recorded location was [location] at [time].
+> 1. Try calling your child directly.
+> 2. Contact the school to verify their whereabouts.
+> 3. If you cannot reach them, contact local authorities.
 
 ---
 
 $_kSafeTrackKnowledgeBase
 
 ---
+
+## Live Device Data (from Firebase — updated each query)
 
 $firebaseContext
 ''';

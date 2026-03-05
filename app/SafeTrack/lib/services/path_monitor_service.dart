@@ -299,7 +299,51 @@ class PathMonitorService {
         '[PathMonitor] ⚠️ DEVIATION: $childName is '
         '${distanceMeters.toStringAsFixed(1)}m from "${route.pathName}"');
 
+    // Feature 2 — Save deviation alert to RTDB alertLogs
+    _saveAlertToRTDB(
+      deviceCode: deviceCode,
+      childName: childName,
+      type: 'deviation',
+      message: '$childName is ${distanceMeters.toStringAsFixed(0)}m away '
+          'from the registered route "${route.pathName}". '
+          'Please check their location immediately.',
+      distanceMeters: distanceMeters,
+      routeName: route.pathName,
+    );
+
     _onDeviationDetected?.call(event);
+  }
+
+  /// Feature 2 — Write alert entry to RTDB.
+  /// Path: alertLogs/{userId}/{deviceCode}/{pushId}
+  Future<void> _saveAlertToRTDB({
+    required String deviceCode,
+    required String childName,
+    required String type,
+    required String message,
+    double? distanceMeters,
+    String? routeName,
+  }) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final ref = FirebaseDatabase.instance
+          .ref('alertLogs')
+          .child(user.uid)
+          .child(deviceCode)
+          .push();
+      await ref.set({
+        'type': type,
+        'childName': childName,
+        'message': message,
+        'timestamp': ServerValue.timestamp,
+        if (distanceMeters != null) 'distanceMeters': distanceMeters,
+        if (routeName != null) 'routeName': routeName,
+      });
+      debugPrint('[PathMonitor] Alert saved to RTDB: $type for $childName');
+    } catch (e) {
+      debugPrint('[PathMonitor] Failed to save alert: $e');
+    }
   }
 
   // ── Waypoint parser (handles Map and legacy List) ─────────────
