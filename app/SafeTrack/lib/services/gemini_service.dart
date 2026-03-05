@@ -165,7 +165,7 @@ const List<GeminiModel> kGeminiModels = [
     badge: 'Recommended',
   ),
   GeminiModel(
-    id: 'gemini-3-flash',
+    id: 'gemini-3-flash-preview',
     displayName: 'Most Detailed',
     description: 'Deepest reasoning and most thorough answers. '
         'Use when you need the most accurate response.',
@@ -173,6 +173,11 @@ const List<GeminiModel> kGeminiModels = [
     badge: 'Most Accurate',
   ),
 ];
+
+// Returned by sendMessage() when the API responds with HTTP 429
+// (rate limit / quota exhausted). The UI detects this exact string
+// to show the model-switcher prompt instead of a generic error.
+const String kGeminiRateLimitError = '__RATE_LIMIT__';
 
 // =============================================================
 // GEMINI SERVICE
@@ -917,6 +922,10 @@ $firebaseContext
     if (response.statusCode != 200) {
       debugPrint(
           '[GeminiService] HTTP ${response.statusCode}: ${response.body}');
+      // 429 = rate limit / quota exhausted — UI will prompt model switch
+      if (response.statusCode == 429) {
+        return kGeminiRateLimitError;
+      }
       return 'I\'m having trouble connecting right now. '
           'Please try again in a moment.';
     }

@@ -54,6 +54,27 @@ class _AskAIScreenState extends State<AskAIScreen> {
     try {
       final response = await _geminiService.sendMessage(question);
       if (!mounted) return;
+
+      // 429 rate-limit — surface a friendly prompt and open model picker
+      if (response == kGeminiRateLimitError) {
+        setState(() {
+          _conversation.add({
+            'type': 'ai',
+            'content':
+                '⚠️ This assistant has reached its usage limit for now.\n\n'
+                'Tap **Switch Assistant** below to pick another one — '
+                'your question will be ready to resend.',
+            'time': DateTime.now(),
+          });
+          _isLoading = false;
+        });
+        _scrollToBottom();
+        // Small delay so the message is visible before the sheet opens
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mounted) _showModelPicker();
+        return;
+      }
+
       setState(() {
         _conversation.add({
           'type': 'ai',
@@ -110,7 +131,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              currentModel.displayName,
+              '${currentModel.displayName} · ${currentModel.id}',
               style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
           ],
@@ -149,7 +170,7 @@ class _AskAIScreenState extends State<AskAIScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Using ${currentModel.displayName} · Reads your real device data',
+                    'Using ${currentModel.displayName} (${currentModel.id}) · Reads your real device data',
                     style: TextStyle(
                       color: Colors.blue[800],
                       fontSize: 12,
