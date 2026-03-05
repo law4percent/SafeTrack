@@ -771,10 +771,13 @@ class DeviceCard extends StatelessWidget {
                       children: [
                         const Icon(Icons.schedule, size: 12, color: Colors.blueAccent),
                         const SizedBox(width: 4),
-                        Text(
-                          'In: ${LinkedDevice.displayTime(device.schoolTimeIn)}  '
-                          'Out: ${LinkedDevice.displayTime(device.schoolTimeOut)}',
-                          style: const TextStyle(fontSize: 11, color: Colors.blueAccent),
+                        Expanded(                // <── ADD THIS
+                          child: Text(
+                            'In: ${LinkedDevice.displayTime(device.schoolTimeIn)}  '
+                            'Out: ${LinkedDevice.displayTime(device.schoolTimeOut)}',
+                            style: const TextStyle(fontSize: 11, color: Colors.blueAccent),
+                            overflow: TextOverflow.ellipsis,  // <── ADD THIS
+                          ),
                         ),
                       ],
                     ),
@@ -784,11 +787,11 @@ class DeviceCard extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ✅ NEW: Route management button
                 IconButton(
-                  icon: const Icon(Icons.route,
-                      color: Colors.green, size: 20),
+                  icon: const Icon(Icons.route, color: Colors.green, size: 20),
                   tooltip: 'Manage Routes',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -800,13 +803,15 @@ class DeviceCard extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.edit_outlined,
-                      color: Colors.blueAccent, size: 20),
+                  icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => _editDevice(context, device),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline,
-                      color: Colors.red, size: 20),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => _removeDevice(context),
                 ),
               ],

@@ -125,7 +125,7 @@ enum _QuestionCategory {
 class GeminiService {
   static const String _apiUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/'
-      'gemini-2.0-flash:generateContent';
+      'gemini-2.5-flash:generateContent';
 
   final List<Map<String, dynamic>> _conversationHistory = [];
   bool _awaitingTimeRangeClarification = false;
@@ -753,6 +753,14 @@ You are SafeTrack AI — a caring, warm assistant inside the SafeTrack child saf
 
 7. **The project Created by:** This app was created by Computer Engineering students: (a) Elyza Camille Good, (b) Jemarie Mae B. Samontanez, and (c) Jonnamaye A. Agting from CTU Danao Campus.
 
+8. **"Behavior" in SafeTrack means movement patterns only.** 
+   When a parent asks about their child's behavior, explain that SafeTrack 
+   tracks location and movement data. Summarize the GPS log entries for 
+   the requested time period: how many location updates were recorded, 
+   any deviation alerts triggered, and whether the child stayed on their 
+   registered route. Do not say SafeTrack "cannot" answer — always 
+   summarize what the data shows.
+
 ---
 
 ## Tone Rules (Feature 4 — Reassuring, Parent-Friendly)
@@ -824,7 +832,7 @@ $firebaseContext
       'contents': _conversationHistory,
       'generationConfig': {
         'temperature': 0.7,
-        'maxOutputTokens': 1024,
+        'maxOutputTokens': 2048,
         'topP': 0.9,
       },
       'safetySettings': [
