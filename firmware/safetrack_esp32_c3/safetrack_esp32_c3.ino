@@ -1,6 +1,6 @@
 /*
  * SafeTrack GPS Tracker — ESP32-C3 Super Mini
- * Version: 4.3 (Conflict-free Build)
+ * Version: 4.4 (GPRS-resilient Build)
  *
  * Hardware:
  *   - ESP32-C3 Super Mini
@@ -92,6 +92,21 @@ bool          sosHolding        = false;
 const unsigned long SOS_HOLD_MS     = 3000;   // hold 3s to activate
 const unsigned long SOS_DURATION_MS = 60000;  // auto-cancel after 60s
 
+// ── SOS Retry Queue (Fix 1) ───────────────────────────────────
+// Stores one pending SOS entry in RAM when GPRS is unavailable.
+// Retried every update cycle until delivered or TTL expires.
+// Only one slot needed — SOS is a singular emergency event.
+struct SosPending {
+  bool     valid    = false;   // true = unsent SOS waiting
+  float    lat      = 0.0;
+  float    lon      = 0.0;
+  float    alt      = 0.0;
+  float    battery  = 0.0;
+  unsigned long queuedAt = 0;  // millis() when queued
+};
+SosPending sosPending;
+const unsigned long SOS_RETRY_TTL_MS = 300000; // give up after 5 min
+
 // Timing
 unsigned long lastUpdateMs = 0;
 const unsigned long UPDATE_INTERVAL_MS = 30000;  // send every 30s
@@ -103,8 +118,9 @@ bool  readGPS();
 float readBattery();
 void  initMAX17043();
 void  sendDeviceStatus();
-void  sendLocationLog();
+bool  sendLocationLog();           // returns true on success
 void  handleSOS();
+void  trySendPendingSOS();         // Fix 1: retry queued SOS
 void  blinkRed(int times = 1);
 void  blinkGreen(int times = 3);
 void  flashSOS();
@@ -197,11 +213,17 @@ void loop() {
     SerialMon.printf("  GPS     : %s\n", gpsValid ? "VALID" : "NO FIX");
     SerialMon.printf("  SOS     : %s\n", sosActive ? "🚨 ACTIVE" : "off");
 
-    // Write to both Firebase paths
-    sendLocationLog();    // → deviceLogs (push entry, history)
-    sendDeviceStatus();   // → deviceStatus (latest snapshot)
+    // Fix 1: attempt to resend any queued SOS before regular update
+    trySendPendingSOS();
 
-    blinkGreen(2);
+    // Write to both Firebase paths
+    bool logOk    = sendLocationLog();   // → deviceLogs (push entry)
+    sendDeviceStatus();                  // → deviceStatus (snapshot)
+
+    // Fix 3: only blink green if at least deviceLogs sent successfully
+    if (logOk) {
+      blinkGreen(2);
+    }
     SerialMon.println("  Next update in 30s\n");
   }
 
@@ -234,9 +256,36 @@ void handleSOS() {
       sosActivatedAt  = now;
       SerialMon.println("🚨🚨🚨 SOS ACTIVATED 🚨🚨🚨");
       flashSOS();
-      // Immediate Firebase push with SOS flag
-      sendLocationLog();
-      sendDeviceStatus();
+
+      // Fix 2: only attempt immediate push if GPRS is up.
+      // If GPRS is down, queue in RAM — trySendPendingSOS() will
+      // deliver it the moment connectivity recovers.
+      if (modem.isGprsConnected()) {
+        SerialMon.println("  📡 GPRS up — sending SOS immediately...");
+        bool sent = sendLocationLog();
+        sendDeviceStatus();
+        if (!sent) {
+          // GPRS was up but HTTP failed — queue for retry
+          SerialMon.println("  ⚠️  SOS send failed — queuing for retry");
+          sosPending.valid    = true;
+          sosPending.lat      = gpsValid ? gpsLat : lastLat;
+          sosPending.lon      = gpsValid ? gpsLon : lastLon;
+          sosPending.alt      = gpsValid ? gpsAlt : lastAlt;
+          sosPending.battery  = batteryPct;
+          sosPending.queuedAt = millis();
+        } else {
+          SerialMon.println("  ✅ SOS sent to Firebase!");
+        }
+      } else {
+        // No GPRS — queue immediately, no blocking HTTP attempt
+        SerialMon.println("  ⚠️  No GPRS — SOS queued for retry when signal returns");
+        sosPending.valid    = true;
+        sosPending.lat      = gpsValid ? gpsLat : lastLat;
+        sosPending.lon      = gpsValid ? gpsLon : lastLon;
+        sosPending.alt      = gpsValid ? gpsAlt : lastAlt;
+        sosPending.battery  = batteryPct;
+        sosPending.queuedAt = millis();
+      }
     }
   } else {
     // Button released
@@ -318,7 +367,12 @@ float readBattery() {
 //   latitude, longitude, altitude, speed, accuracy,
 //   locationType, timestamp (Unix ms)
 //
-void sendLocationLog() {
+bool sendLocationLog() {
+  // Fix 4: GPRS guard — skip HTTP entirely if not connected
+  if (!modem.isGprsConnected()) {
+    SerialMon.println("  ⚠️  sendLocationLog skipped — GPRS not connected");
+    return false;
+  }
   // Use last valid fix if GPS unavailable this cycle
   float lat = gpsValid ? gpsLat : lastLat;
   float lon = gpsValid ? gpsLon : lastLon;
@@ -365,9 +419,11 @@ void sendLocationLog() {
 
   if (httpPost(url, payload)) {
     SerialMon.println("  ✅ deviceLogs push OK");
+    return true;
   } else {
     SerialMon.println("  ❌ deviceLogs push FAILED");
     blinkRed(3);
+    return false;
   }
 }
 
@@ -378,6 +434,11 @@ void sendLocationLog() {
 // Flutter dashboard and AI assistant read battery + SOS from here.
 //
 void sendDeviceStatus() {
+  // Fix 4: GPRS guard — skip HTTP entirely if not connected
+  if (!modem.isGprsConnected()) {
+    SerialMon.println("  ⚠️  sendDeviceStatus skipped — GPRS not connected");
+    return;
+  }
   // ✅ Path matches real RTDB structure:
   //    linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
   // ✅ Field names match RTDB schema:
@@ -463,7 +524,8 @@ String _sendAT(const String& cmd, unsigned long timeoutMs = 2000) {
   return resp;
 }
 
-bool _httpRequest(const String& url, const String& payload, int action) {
+bool _httpRequest(const String& url, const String& payload,
+                  int action) {
   // action: 0=GET, 1=POST
   _sendAT("AT+HTTPTERM", 500);
   delay(200);
@@ -623,6 +685,67 @@ bool authenticateDevice() {
   }
 
   return false;
+}
+
+// ==================== SOS RETRY (Fix 1) ====================
+//
+// Called every update cycle (every 30s).
+// If a queued SOS exists and GPRS is now available, sends it.
+// Clears the queue on success or on TTL expiry (5 minutes).
+//
+void trySendPendingSOS() {
+  if (!sosPending.valid) return;
+
+  unsigned long age = millis() - sosPending.queuedAt;
+
+  // TTL expired — give up
+  if (age >= SOS_RETRY_TTL_MS) {
+    SerialMon.println("⚠️  SOS retry TTL expired — discarding queued SOS");
+    sosPending.valid = false;
+    return;
+  }
+
+  // Still no GPRS — wait for next cycle
+  if (!modem.isGprsConnected()) {
+    SerialMon.printf("  📵 SOS retry pending — no GPRS (age: %lus)
+",
+                     age / 1000);
+    return;
+  }
+
+  SerialMon.printf("  🔄 Retrying queued SOS (age: %lus)...
+", age / 1000);
+
+  // Build SOS payload using stored values from when SOS was triggered
+  StaticJsonDocument<512> doc;
+  doc["latitude"]     = sosPending.lat;
+  doc["longitude"]    = sosPending.lon;
+  doc["altitude"]     = round(sosPending.alt * 10) / 10.0;
+  doc["speed"]        = 0.0;
+  doc["accuracy"]     = 30.0;  // degraded — was offline when triggered
+  doc["locationType"] = "cached";
+  doc["sos"]          = true;
+  doc["batteryLevel"] = (int)round(sosPending.battery);
+  JsonObject ts = doc.createNestedObject("timestamp");
+  ts[".sv"] = "timestamp";
+  JsonObject lu = doc.createNestedObject("lastUpdate");
+  lu[".sv"] = "timestamp";
+
+  String payload;
+  serializeJson(doc, payload);
+
+  String url = FIREBASE_URL + "/deviceLogs/" + userUid + "/"
+               + DEVICE_CODE + ".json";
+
+  if (httpPost(url, payload)) {
+    SerialMon.println("  ✅ Queued SOS delivered successfully!");
+    sosPending.valid = false;   // clear queue
+    // Also update deviceStatus to reflect SOS was triggered
+    sendDeviceStatus();
+  } else {
+    SerialMon.println("  ❌ SOS retry failed — will try again next cycle");
+    // sosPending.valid remains true → retry next cycle
+  }
 }
 
 // ==================== LED HELPERS ====================

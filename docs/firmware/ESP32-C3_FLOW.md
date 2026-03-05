@@ -1,6 +1,7 @@
-# SafeTrack ESP32-C3 Firmware — Flow Diagrams
+# SafeTrack ESP32-C3 Firmware — Flow Diagrams v4.4
 
-> **Firmware Version:** 4.2 | **Hardware:** ESP32-C3 Super Mini + SIM7600E-H1C
+> **Firmware Version:** 4.4 (GPRS-Resilient Build)
+> **Key changes from v4.2:** SOS retry queue, non-blocking GPRS check, honest LED feedback, GPRS guards
 
 ---
 
@@ -8,247 +9,262 @@
 
 ```mermaid
 flowchart TD
-    A([Power ON]) --> B[Serial Monitor begin 115200]
-    B --> C[Init GPIO\nRED_PIN=8 OUT\nGRN_PIN=3 OUT\nSOS_BTN=2 INPUT_PULLUP]
-    C --> D[Init I2C\nSDA=6 SCL=7]
-    D --> E[initMAX17043\nQuick-start command\nvia Wire I2C]
-    E --> F[readBattery\nRead SOC register 0x04\nReturn batteryPct %]
-    F --> G[Start UART1\nRX=20 TX=21\n115200 baud]
+    A([Power ON]) --> B[Serial Monitor 115200]
+    B --> C[GPIO Init\nRED=8 OUT · GRN=3 OUT\nSOS_BTN=2 INPUT_PULLUP]
+    C --> D[I2C Init\nSDA=6 · SCL=7]
+    D --> E[initMAX17043\nQuick-start via Wire]
+    E --> F[readBattery\nSOC register 0x04\nbatteryPct = 0–100%]
+    F --> G[UART1 Start\nRX=20 · TX=21 · 115200]
     G --> H[modem.restart\nAT+CRESET]
     H --> I{Modem OK?}
     I -- No --> J[⚠️ Log warning\nContinue anyway]
-    I -- Yes --> K[modem.enableGPS\nAT+CGPS=1]
-    J --> K
+    I -- Yes --> K
+    J --> K[modem.enableGPS\nAT+CGPS=1]
     K --> L[connectNetwork]
 
-    L --> L1{GPRS already\nconnected?}
-    L1 -- Yes --> L4
-    L1 -- No --> L2[modem.waitForNetwork\n30s timeout]
-    L2 --> L3{Network\nregistered?}
-    L3 -- No --> L_fail[❌ Log timeout\nReturn — no GPRS]
-    L3 -- Yes --> L4[modem.gprsConnect\nAPN: http.globe.com.ph]
-    L4 --> L5{GPRS\nconnected?}
-    L5 -- No --> L_fail2[❌ Log failure]
-    L5 -- Yes --> L6[✅ Log IP address]
+    L --> L1{isGprsConnected?}
+    L1 -- Yes --> L5[Already connected]
+    L1 -- No --> L2[waitForNetwork\n30s timeout]
+    L2 --> L3{Registered?}
+    L3 -- No --> L4[❌ Timeout\nReturn — no GPRS]
+    L3 -- Yes --> L4b[gprsConnect APN]
+    L4b --> L5
 
-    L6 --> M[authenticateDevice]
-    L_fail --> M
-    L_fail2 --> M
+    L4 --> M[authenticateDevice]
+    L5 --> M
 
     M --> M1[HTTP GET\nrealDevices.json]
-    M1 --> M2{Response\n200 OK?}
-    M2 -- No --> M_fail[❌ Empty response]
-    M2 -- Yes --> M3[Parse JSON\nloop all entries]
-    M3 --> M4{deviceCode\nmatches\nDEVICE_CODE?}
+    M1 --> M2{200 OK?}
+    M2 -- No --> FAIL[❌ Empty response]
+    M2 -- Yes --> M3[Parse JSON\nLoop entries]
+    M3 --> M4{deviceCode\nmatches?}
     M4 -- No --> M3
-    M4 -- Yes --> M5{actionOwnerID\npresent and\nnot null?}
-    M5 -- No --> M_fail
-    M5 -- Yes --> M6[Set userUid\nSet deviceUid\nReturn true]
+    M4 -- Yes --> M5{actionOwnerID\nexists?}
+    M5 -- No --> FAIL
+    M5 -- Yes --> M6[userUid = actionOwnerID\ndeviceUid = entry key]
 
-    M_fail --> AUTH_FAIL[❌ Not authorized\nBlink RED forever\nHALT]
-    M6 --> AUTH_OK[✅ isAuthorized = true\nBlink GREEN ×3]
-    AUTH_OK --> LOOP([Enter loop])
+    FAIL --> HALT[❌ Not Authorized\nBlink RED forever\nHALT]
+    M6 --> OK[✅ isAuthorized = true\nGREEN ×3 blink]
+    OK --> LOOP([Enter Main Loop])
 ```
 
 ---
 
-## 2. Main Loop Flow
+## 2. Main Loop — Full Cycle
+
+> Every iteration ≈ 10ms. SOS checked every iteration. Firebase update every 30s.
 
 ```mermaid
 flowchart TD
     LOOP([loop start]) --> A{isAuthorized?}
-    A -- No --> A1[blinkRed\ndelay 1s\nreturn]
+    A -- No --> A1[blinkRed · delay 1s · return]
     A1 --> LOOP
 
-    A -- Yes --> B[handleSOS\ncalled every iteration\n~10ms cycle]
-    B --> C{now - lastUpdateMs\n>= 30000ms?}
+    A -- Yes --> B[handleSOS\ncalled every ~10ms]
+    B --> C{now − lastUpdateMs\n≥ 30000ms?}
     C -- No --> D[delay 10ms]
     D --> LOOP
 
     C -- Yes --> E[lastUpdateMs = now]
-    E --> F[readBattery\nbatteryPct updated]
-    F --> G{modem.isGprs\nConnected?}
-    G -- No --> H[connectNetwork\nreconnect GPRS]
+    E --> F[readBattery\nI2C MAX17043\nalways works — no GPRS needed]
+    F --> G{isGprsConnected?}
+    G -- No --> H[connectNetwork\ntry to recover GPRS\nmax 30s wait]
     H --> I
-    G -- Yes --> I[readGPS]
+    G -- Yes --> I[readGPS\nAT+CGPSINFO via TinyGSM\nalways works — satellite]
 
-    I --> I1[modem.getGPS\nAT+CGPSINFO via TinyGSM]
-    I1 --> I2{lat != 0\nAND lon != 0?}
-    I2 -- Yes --> I3[Update gpsLat gpsLon\ngpsAlt gpsSpeed\nSave to lastLat lastLon lastAlt\ngpsValid = true]
-    I2 -- No --> I4[gpsValid = false\nUse cached lastLat lastLon]
+    I --> I1{lat≠0 AND lon≠0?}
+    I1 -- Yes --> I2[gpsValid = true\nUpdate gpsLat gpsLon gpsAlt\nSave to lastLat lastLon lastAlt]
+    I1 -- No --> I3[gpsValid = false\nUse cached lastLat lastLon]
+    I2 --> J
+    I3 --> J
 
-    I3 --> J[sendLocationLog]
-    I4 --> J
+    J[trySendPendingSOS\ncheck RAM queue first] --> K
 
-    J --> J1[Build JSON payload\nlatitude longitude altitude\nspeed accuracy locationType\nsos timestamp .sv]
-    J1 --> J2[HTTP POST\ndeviceLogs/userUid/DEVICE1234.json]
-    J2 --> J3{HTTP 200\nor 201?}
-    J3 -- Yes --> J4[✅ deviceLogs push OK]
-    J3 -- No --> J5[❌ blinkRed ×3]
+    K[sendLocationLog\nreturns bool logOk] --> L[sendDeviceStatus]
 
-    J4 --> K[sendDeviceStatus]
-    J5 --> K
-
-    K --> K1[Build JSON payload\nbatteryLevel sos\nlastLocation lastUpdate .sv]
-    K1 --> K2[HTTP POST\nlinkedDevices/uid/devices\n/DEVICE1234/deviceStatus.json\n?x-http-method-override=PATCH]
-    K2 --> K3{HTTP 200\nor 201?}
-    K3 -- Yes --> K4[✅ deviceStatus PATCH OK]
-    K3 -- No --> K5[❌ blinkRed ×2]
-
-    K4 --> L[blinkGreen ×2]
-    K5 --> L
-    L --> D
+    L --> M{logOk == true?}
+    M -- Yes --> N[GREEN blink ×2\n✅ cycle success]
+    M -- No --> O[No green blink\nsilent — GPRS issue]
+    N --> D
+    O --> D
 ```
 
 ---
 
-## 3. SOS Handler Flow
+## 3. GPRS State Machine
 
-> Called on **every loop iteration** (~every 10ms). Non-blocking — uses `millis()` only, no `delay()`.
+> This is the connectivity spectrum — not just on/off.
+
+```mermaid
+flowchart LR
+    S1(["STATE 1\nFull Connection\nisGprsConnected=true\nHTTP 200/201"])
+    S2(["STATE 2\nWeak Signal\nisGprsConnected=true\nHTTP timeout/fail"])
+    S3(["STATE 3\nGPRS Dropped\nisGprsConnected=false\nCan re-register"])
+    S4(["STATE 4\nNo Internet\nisGprsConnected=false\nNo tower reachable"])
+
+    S1 -- signal weakens --> S2
+    S2 -- signal lost --> S3
+    S3 -- no tower at all --> S4
+    S4 -- tower found --> S3
+    S3 -- re-registers --> S2
+    S2 -- signal strong --> S1
+
+    subgraph outcomes["What happens in each state"]
+        O1["STATE 1 ✅\nAll data sent normally\nGreen blink ×2"]
+        O2["STATE 2 ⚠️\nGuard passes — HTTP tried\nMay timeout → Red blink\nSOS queued if fails\nRetries next cycle"]
+        O3["STATE 3 ⚠️\nFix 4 guard exits instantly\nconnectNetwork() called\nData skipped this cycle\nSOS queued in RAM"]
+        O4["STATE 4 ❌\nFix 4 guard exits instantly\nData lost this cycle\nSOS queued — retried 30s\nDevice never hangs"]
+    end
+
+    S1 --- O1
+    S2 --- O2
+    S3 --- O3
+    S4 --- O4
+```
+
+---
+
+## 4. sendLocationLog — With GPRS Guard
 
 ```mermaid
 flowchart TD
-    SOS([handleSOS called]) --> A{sosActive AND\nnow - sosActivatedAt\n>= 60000ms?}
-    A -- Yes --> A1[sosActive = false\nLED OFF\nAuto-cancelled]
-    A -- No --> B
-    A1 --> B
+    A([sendLocationLog called]) --> B{isGprsConnected?}
+    B -- No --> C[⚠️ Log: skipped\nreturn FALSE instantly\nno HTTP attempt]
+    B -- Yes --> D[Pick coordinates\ngpsValid? → current lat lon alt\nelse → lastLat lastLon lastAlt]
+    D --> E[Build JSON payload\nlatitude · longitude · altitude\nspeed · accuracy · locationType\nsos · batteryLevel\ntimestamp .sv · lastUpdate .sv]
+    E --> F[AT+HTTPINIT\nAT+HTTPPARA URL\nAT+HTTPDATA payload\nAT+HTTPACTION=1 POST]
+    F --> G{HTTP 200 or 201?}
+    G -- Yes --> H[✅ return TRUE\ndeviceLogs push OK]
+    G -- No --> I[❌ blinkRed ×3\nreturn FALSE]
+```
 
-    B[Read GPIO2\ndigitalRead SOS_BTN] --> C{Button\nstate LOW?\npulled up}
+---
 
-    C -- YES button held --> D{sosHolding\nalready true?}
-    D -- No --> D1[sosHolding = true\nsosPressStart = now\nLog: keep holding...]
-    D -- Yes --> E
-    D1 --> E
+## 5. sendDeviceStatus — With GPRS Guard
 
-    E{sosActive already\ntrue?}
-    E -- Yes --> F[Skip activation\nalready active]
-    E -- No --> G{now - sosPressStart\n>= 3000ms?}
-    G -- No --> H[Still counting...\nno action yet]
-    G -- Yes --> I[sosActive = true\nsosActivatedAt = now\nLog: SOS ACTIVATED]
-    I --> I1[flashSOS\nMorse S·O·S on RED LED\n~2.75s blocking]
-    I1 --> I2[sendLocationLog\nImmediate push with sos=true]
-    I2 --> I3[sendDeviceStatus\nImmediate PATCH with sos=true]
+```mermaid
+flowchart TD
+    A([sendDeviceStatus called]) --> B{isGprsConnected?}
+    B -- No --> C[⚠️ Log: skipped\nreturn instantly]
+    B -- Yes --> D[Build JSON payload\nbatteryLevel · sos\nlastLocation lat lon alt\nlastUpdate .sv]
+    D --> E[POST + ?x-http-method-override=PATCH\nlinkedDevices/uid/devices\n/DEVICE1234/deviceStatus.json]
+    E --> F{HTTP 200 or 201?}
+    F -- Yes --> G[✅ deviceStatus PATCH OK]
+    F -- No --> H[❌ blinkRed ×2]
+```
 
-    C -- NO button released --> J{sosHolding\nwas true?}
-    J -- No --> K[No action]
-    J -- Yes --> J1{sosActive?}
-    J1 -- No --> J2[Log: released early\nheld X.Xs need 3s]
-    J1 -- Yes --> J3[SOS stays active\nno change]
-    J2 --> J4[sosHolding = false]
-    J3 --> J4
+---
 
-    F --> LED
-    H --> LED
-    I3 --> LED
-    K --> LED
-    J4 --> LED
+## 6. SOS Handler — Full Flow with GPRS Resilience
+
+> Called every ~10ms. Non-blocking. Uses millis() only — no delay().
+
+```mermaid
+flowchart TD
+    SOS([handleSOS called]) --> AC{sosActive AND\nnow−sosActivatedAt\n≥ 60000ms?}
+    AC -- Yes --> AC1[sosActive = false\nLED OFF\nAuto-cancelled]
+    AC -- No --> BTN
+    AC1 --> BTN
+
+    BTN[digitalRead GPIO2] --> P{Button LOW?\nheld down}
+
+    P -- YES --> Q{sosHolding\nalready?}
+    Q -- No --> Q1[sosHolding = true\nsosPressStart = now\nLog: hold for 3s...]
+    Q -- Yes --> R
+    Q1 --> R
+
+    R{sosActive\nalready?}
+    R -- Yes --> LED
+    R -- No --> S{now−sosPressStart\n≥ 3000ms?}
+    S -- No --> LED
+    S -- Yes --> T[sosActive = true\nsosActivatedAt = now\nflashSOS LED Morse S·O·S]
+
+    T --> U{isGprsConnected?}
+
+    U -- YES GPRS UP --> V[sendLocationLog\nreturns sent bool]
+    V --> V2[sendDeviceStatus]
+    V2 --> W{sent == true?}
+    W -- Yes --> W1[✅ SOS delivered\nsosPending.valid stays false]
+    W -- No --> X[⚠️ HTTP failed\nQueue SOS in RAM\nsosPending.valid = true\nsosPending.lat lon alt battery\nsosPending.queuedAt = now]
+
+    U -- NO GPRS DOWN --> Y[⚠️ No GPRS\nQueue immediately\nsosPending.valid = true\nsosPending.lat lon alt battery\nsosPending.queuedAt = now\nNo blocking HTTP attempt]
+
+    W1 --> LED
+    X --> LED
+    Y --> LED
+
+    P -- NO released --> Z{sosHolding\nwas true?}
+    Z -- No --> LED
+    Z -- Yes --> Z1{sosActive?}
+    Z1 -- No --> Z2[Log: released early\nheld X.Xs need 3s]
+    Z1 -- Yes --> Z3[SOS active\nno change]
+    Z2 --> Z4[sosHolding = false]
+    Z3 --> Z4
+    Z4 --> LED
 
     LED{sosActive?}
-    LED -- Yes --> LED1[Blink RED\nnow/500 % 2 == 0\n1Hz toggle]
-    LED -- No --> LED2[RED stays OFF\nunless blinkRed called]
+    LED -- Yes --> LED1[Toggle RED\nnow/500 % 2\n1Hz blink]
+    LED -- No --> LED2[RED off]
     LED1 --> RET([return])
     LED2 --> RET
 ```
 
 ---
 
-## 4. Firebase Write Flow
+## 7. trySendPendingSOS — Retry Queue
 
-```mermaid
-flowchart LR
-    subgraph ESP32["ESP32-C3 Super Mini"]
-        A[GPS Fix\nLat Lon Alt Speed] --> C
-        B[Battery %\nfrom MAX17043] --> C
-        S[SOS Flag\nfrom handleSOS] --> C
-        C[Build JSON Payload]
-    end
-
-    subgraph HTTP["SIM7600E-H1C — 4G LTE"]
-        C --> D1[AT+HTTPINIT\nAT+HTTPPARA URL\nAT+HTTPDATA\nAT+HTTPACTION=1]
-    end
-
-    subgraph Firebase["Firebase RTDB"]
-        D1 -->|POST — push ID| E1["deviceLogs/
-        {userUid}/DEVICE1234/
-        {-pushId}
-        ──────────────
-        latitude
-        longitude
-        altitude
-        speed
-        accuracy
-        locationType
-        sos
-        timestamp"]
-
-        D1 -->|POST + PATCH override| E2["linkedDevices/
-        {userUid}/devices/DEVICE1234/
-        deviceStatus
-        ──────────────
-        batteryLevel
-        sos
-        lastLocation
-        lastUpdate"]
-    end
-
-    subgraph Flutter["Flutter Parent App"]
-        E1 -->|onValue stream| F1[Live Map\nRoute Deviation\nAI Context]
-        E2 -->|onValue stream| F2[Dashboard Card\nBattery %\nSOS Alert]
-    end
-```
-
----
-
-## 5. Device Authentication Flow
+> Called at the start of every 30s update cycle.
 
 ```mermaid
 flowchart TD
-    A([authenticateDevice called]) --> B[HTTP GET\nfirebaseURL/realDevices.json]
-    B --> C{HTTP 200?}
-    C -- No --> FAIL([return false])
-    C -- Yes --> D[Read response body\nAT+HTTPREAD=0,4096]
-    D --> E[Extract JSON\nbetween first { and last }]
-    E --> F{JSON parse\nsuccessful?}
-    F -- No --> FAIL
-    F -- Yes --> G[Loop each entry\nin realDevices object]
-    G --> H{Has key\ndeviceCode?}
-    H -- No --> G
-    H -- Yes --> I{deviceCode ==\nDEVICE_CODE\nconstant?}
-    I -- No --> G
-    I -- Yes --> J{Has key\nactionOwnerID?}
-    J -- No --> FAIL
-    J -- Yes --> K{actionOwnerID\nnot empty\nnot null?}
-    K -- No --> FAIL
-    K -- Yes --> L[deviceUid = entry key\nuserUid = actionOwnerID]
-    L --> SUCCESS([return true])
+    A([trySendPendingSOS called]) --> B{sosPending.valid?}
+    B -- No --> RET([return — nothing queued])
+
+    B -- Yes --> C[age = now − sosPending.queuedAt]
+    C --> D{age ≥ 300000ms\n5 minutes TTL?}
+    D -- Yes --> E[sosPending.valid = false\nLog: TTL expired — discarded]
+    E --> RET
+
+    D -- No --> F{isGprsConnected?}
+    F -- No --> G[Log: still no GPRS\nage Xs — wait next cycle]
+    G --> RET
+
+    F -- Yes --> H[Build retry payload\nusing stored sosPending values\nlatitude · longitude · altitude\nsos=true · batteryLevel\nlocationType=cached · accuracy=30m\ntimestamp .sv · lastUpdate .sv]
+    H --> I[HTTP POST\ndeviceLogs/uid/DEVICE1234.json]
+    I --> J{HTTP 200/201?}
+
+    J -- Yes --> K[✅ SOS delivered!\nsosPending.valid = false\nQueue cleared\nsendDeviceStatus to update sos flag]
+    J -- No --> L[❌ Retry failed\nsosPending.valid stays true\nwill retry next 30s cycle]
+    K --> RET
+    L --> RET
 ```
 
 ---
 
-## 6. LED Status Code Reference
+## 8. What Keeps Working Without Internet
 
 ```mermaid
 flowchart LR
-    subgraph Startup
-        A1[🔴 RED blinking\ncontinuously] --> B1[Device not authorized\nCheck Firebase realDevices]
-        A2[🟢 GREEN ×3 blink] --> B2[Authorized successfully\nReady to track]
+    subgraph always["✅ Always Works — No Internet Needed"]
+        A1[GPS Satellite\nmodem.getGPS\nSatellite receiver\nindependent of 4G]
+        A2[Battery Reading\nMAX17043 I2C\nWire.requestFrom\nno network involved]
+        A3[SOS Button\ndigitalRead GPIO2\nevery 10ms\npure hardware]
+        A4[SOS LED\ndigitalWrite RED_PIN\npure hardware]
+        A5[30s Cycle Timer\nmillis internal clock\nalways running]
+        A6[Serial Monitor\nUSB serial\nalways works]
     end
 
-    subgraph Normal Operation
-        C1[🟢 GREEN ×2 blink\nevery 30s] --> D1[Update cycle complete\nFire base push OK]
-        C2[🔴 RED ×3 blink] --> D2[deviceLogs POST failed\nCheck GPRS signal]
-        C3[🔴 RED ×2 blink] --> D3[deviceStatus PATCH failed\nCheck GPRS signal]
-    end
-
-    subgraph SOS
-        E1[🔴 RED slow blink\n1Hz toggle] --> F1[SOS is ACTIVE\nEmergency in progress]
-        E2[🔴 RED Morse S·O·S\nfast pattern] --> F2[SOS just activated\nImmediate push triggered]
+    subgraph needs["❌ Needs Internet — Stops Without GPRS"]
+        B1[deviceLogs POST\nneeds Firebase REST\nvia 4G LTE]
+        B2[deviceStatus PATCH\nneeds Firebase REST\nvia 4G LTE]
+        B3[SOS immediate push\nqueued in RAM\ndelivered when back]
+        B4[App online status\nno timestamp update\nshows Offline after 5min]
     end
 ```
 
 ---
 
-## 7. Data Flow Summary
+## 9. Full End-to-End Data Flow — v4.4
 
 ```mermaid
 sequenceDiagram
@@ -259,31 +275,108 @@ sequenceDiagram
     participant APP as Flutter App
     participant AI as Gemini AI
 
-    Note over ESP: Every 30 seconds
+    Note over ESP: Every 30 seconds — normal cycle
+    ESP->>ESP: readBattery via I2C MAX17043
     ESP->>GSM: AT+CGPSINFO
     GSM-->>ESP: lat, lon, alt, speed
-    ESP->>GSM: Wire I2C MAX17043
-    GSM-->>ESP: battery %
-    ESP->>GSM: AT+HTTPACTION=1 POST deviceLogs
-    GSM->>FB: { lat, lon, alt, speed, sos, timestamp }
-    FB-->>APP: onValue stream → live map update
-    ESP->>GSM: AT+HTTPACTION=1 POST deviceStatus + PATCH
-    GSM->>FB: { batteryLevel, sos, lastLocation }
-    FB-->>APP: onValue stream → dashboard card update
+    ESP->>ESP: trySendPendingSOS — check queue
+    ESP->>GSM: isGprsConnected?
+    GSM-->>ESP: true/false
 
-    Note over BTN: Parent/child holds 3s
-    BTN->>ESP: GPIO2 LOW for >= 3000ms
-    ESP->>ESP: sosActive = true\nflashSOS LED
-    ESP->>GSM: Immediate POST deviceLogs sos=true
-    GSM->>FB: Emergency entry pushed
-    FB-->>APP: SOS notification triggered
-    ESP->>GSM: Immediate PATCH deviceStatus sos=true
-    GSM->>FB: deviceStatus.sos = true
-    FB-->>APP: Dashboard SOS banner shown
+    alt GPRS connected
+        ESP->>GSM: POST deviceLogs JSON
+        GSM->>FB: latitude longitude speed sos batteryLevel timestamp lastUpdate
+        FB-->>APP: onValue → live map updates
+        ESP->>GSM: POST+PATCH deviceStatus
+        GSM->>FB: batteryLevel sos lastLocation lastUpdate
+        FB-->>APP: onValue → dashboard card updates
+        ESP->>ESP: GREEN blink ×2
+    else GPRS down
+        ESP->>ESP: Fix 4 guard → skip HTTP instantly
+        ESP->>ESP: No green blink — silent cycle
+    end
 
-    Note over APP: Parent asks AI
+    Note over BTN: Child holds button 3 seconds
+    BTN->>ESP: GPIO2 LOW for ≥ 3000ms
+    ESP->>ESP: sosActive = true
+    ESP->>ESP: flashSOS Morse LED ~2.75s
+
+    alt GPRS up at SOS moment
+        ESP->>GSM: POST deviceLogs sos=true
+        GSM->>FB: Emergency entry pushed
+        FB-->>APP: SOS notification triggered
+        ESP->>GSM: PATCH deviceStatus sos=true
+        GSM->>FB: deviceStatus.sos = true
+        FB-->>APP: Dashboard SOS banner shown
+    else GPRS down at SOS moment
+        ESP->>ESP: Fix 2 — queue in RAM instantly
+        ESP->>ESP: sosPending.valid = true
+        Note over ESP: No blocking — returns immediately
+        Note over ESP: Next 30s cycle — trySendPendingSOS
+        ESP->>GSM: GPRS recovered? POST queued SOS
+        GSM->>FB: Delayed SOS entry with locationType=cached
+        FB-->>APP: Late SOS notification delivered
+    end
+
+    Note over APP: Parent asks AI assistant
     APP->>FB: Read deviceLogs + deviceStatus
-    FB-->>APP: Real-time context data
-    APP->>AI: Context + question → Gemini API
-    AI-->>APP: Response with follow-up question
+    FB-->>APP: Location history + battery + SOS state
+    APP->>AI: Firebase context + parent question
+    AI-->>APP: Response + follow-up question
+```
+
+---
+
+## 10. LED Indicator Reference — v4.4
+
+```mermaid
+flowchart LR
+    subgraph boot["Startup"]
+        L1[🔴 RED continuous\nblink forever] --> M1[Not authorized\nCheck Firebase realDevices]
+        L2[🟢 GREEN ×3 blink] --> M2[Authorized\nReady to track]
+    end
+
+    subgraph normal["Normal Operation"]
+        L3[🟢 GREEN ×2\nevery 30s] --> M3[deviceLogs POST success\nFIX 3 — only blinks if data sent]
+        L4[No blink after 30s] --> M4[GPRS issue this cycle\nFIX 3 — silent on failure]
+        L5[🔴 RED ×3] --> M5[deviceLogs POST failed\nHTTP error or timeout]
+        L6[🔴 RED ×2] --> M6[deviceStatus PATCH failed]
+    end
+
+    subgraph sos["SOS State"]
+        L7[🔴 RED Morse S·O·S\nrapid pattern] --> M7[SOS just activated\nflashSOS called]
+        L8[🔴 RED slow 1Hz blink] --> M8[SOS active\n60s window running]
+        L9[RED goes OFF] --> M9[SOS auto-cancelled\n60s elapsed]
+    end
+```
+
+---
+
+## 11. SOS Retry Queue — State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Empty : Power on
+
+    Empty --> Queued : SOS triggered\nGPRS down OR HTTP failed
+    Queued --> Delivering : GPRS recovered\ntrySendPendingSOS called
+    Delivering --> Empty : HTTP 200/201\nSOS delivered ✅
+    Delivering --> Queued : HTTP failed\nRetry next 30s cycle
+    Queued --> Expired : age > 5 minutes\nTTL exceeded
+    Expired --> Empty : sosPending.valid = false
+
+    note right of Queued
+        sosPending struct
+        valid = true
+        lat, lon, alt stored
+        battery stored
+        queuedAt timestamp
+        Size = 24 bytes RAM only
+    end note
+
+    note right of Empty
+        sosPending.valid = false
+        No RAM held
+        No retry attempts
+    end note
 ```
