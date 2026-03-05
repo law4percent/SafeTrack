@@ -386,131 +386,145 @@ class LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContextBuilder, setDialogState) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.lock_reset, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Reset Password'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Enter your email address to receive a password reset link.',
-                style: TextStyle(fontSize: 14),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Row(
+                children: const [
+                  Icon(Icons.lock_reset, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('Reset Password'),
+                ],
               ),
-              SizedBox(height: 16),
-              TextField(
-                controller: resetEmailController,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
-                  errorText: errorMessage,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Enter your email address to receive a password reset link.',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: resetEmailController,
+                    keyboardType: TextInputType.emailAddress,
+                    enabled: !isLoading,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.email),
+                      errorText: errorMessage,
+                    ),
+                    onChanged: (_) {
+                      if (errorMessage != null) {
+                        setDialogState(() => errorMessage = null);
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLoading
+                      ? null
+                      : () {
+                          Navigator.of(dialogContext).pop();
+                          resetEmailController.dispose();
+                        },
+                  child: const Text('Cancel'),
                 ),
-                keyboardType: TextInputType.emailAddress,
-                enabled: !isLoading,
-                onChanged: (_) {
-                  if (errorMessage != null) {
-                    setDialogState(() => errorMessage = null);
-                  }
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isLoading ? null : () {
-                resetEmailController.dispose();
-                Navigator.pop(dialogContext);
-              },
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: isLoading ? null : () async {
-                final email = resetEmailController.text.trim();
-                
-                // Validation
-                if (email.isEmpty) {
-                  setDialogState(() => errorMessage = 'Please enter your email');
-                  return;
-                }
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          final email = resetEmailController.text.trim();
 
-                if (!email.contains('@') || !email.contains('.')) {
-                  setDialogState(() => errorMessage = 'Please enter a valid email');
-                  return;
-                }
+                          // Validation
+                          if (email.isEmpty) {
+                            setDialogState(
+                                () => errorMessage = 'Please enter your email');
+                            return;
+                          }
 
-                setDialogState(() {
-                  isLoading = true;
-                  errorMessage = null;
-                });
+                          if (!email.contains('@') || !email.contains('.')) {
+                            setDialogState(() =>
+                                errorMessage = 'Please enter a valid email');
+                            return;
+                          }
 
-                try {
-                  final authService = Provider.of<AuthService>(context, listen: false);
-                  await authService.resetPassword(email);
-                  
-                  resetEmailController.dispose();
-                  Navigator.pop(dialogContext);
-                  
-                  // Show success message on the main screen
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.white),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text('Password reset link sent to $email\nPlease check your inbox and spam folder.'),
-                            ),
-                          ],
-                        ),
-                        backgroundColor: Colors.green,
-                        duration: Duration(seconds: 5),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  setDialogState(() {
-                    isLoading = false;
-                    // Clean up error message
-                    String errorText = e.toString();
-                    if (errorText.startsWith('Exception: ')) {
-                      errorText = errorText.substring('Exception: '.length);
-                    }
-                    errorMessage = errorText;
-                  });
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-              ),
-              child: isLoading
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text('Send Reset Link'),
-            ),
-          ],
-        ),
-      ),
-    ).then((_) {
-      // Dispose controller if dialog is dismissed
-      if (resetEmailController.text.isNotEmpty) {
-        resetEmailController.dispose();
-      }
-    });
+                          setDialogState(() {
+                            isLoading = true;
+                            errorMessage = null;
+                          });
+
+                          // Store context dependencies BEFORE async gap
+                          final authService =
+                              Provider.of<AuthService>(context, listen: false);
+                          final navigator = Navigator.of(dialogContext);
+                          final messenger = ScaffoldMessenger.of(context);
+
+                          try {
+                            await authService.resetPassword(email);
+
+                            if (!mounted) return;
+
+                            navigator.pop();
+                            resetEmailController.dispose();
+
+                            messenger.showSnackBar(
+                              SnackBar(
+                                backgroundColor: Colors.green,
+                                duration: const Duration(seconds: 5),
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle,
+                                        color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Password reset link sent to $email\nPlease check your inbox and spam folder.',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          } catch (e) {
+                            setDialogState(() {
+                              isLoading = false;
+
+                              String errorText = e.toString();
+                              if (errorText.startsWith('Exception: ')) {
+                                errorText =
+                                    errorText.substring('Exception: '.length);
+                              }
+
+                              errorMessage = errorText;
+                            });
+                          }
+                        },
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Send Reset Link'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
