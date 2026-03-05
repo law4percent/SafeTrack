@@ -817,7 +817,7 @@ class RouteListScreen extends StatelessWidget {
                   value: route.isActive,
                   onChanged: (val) => _toggleRouteActive(
                       context, userId, route.routeId, val),
-                  activeColor: Colors.green,
+                  activeThumbColor: Colors.green,
                 ),
               ],
             ),

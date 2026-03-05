@@ -17,7 +17,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+// import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // Used
 import 'notification_service.dart';
 
 class BehaviorMonitorService {
@@ -172,8 +172,8 @@ class BehaviorMonitorService {
     // Movement detected outside school hours (before 06:00 or after 20:00)
     // Using a "suspicious hours" window — adjustable
     final suspiciousStart = DateTime(now.year, now.month, now.day, 22, 0);
-    final suspiciousEnd   = DateTime(now.year, now.month, now.day, 5, 0)
-        .add(const Duration(days: 1)); // 05:00 next day
+    // final suspiciousEnd   = DateTime(now.year, now.month, now.day, 5, 0) // Unused
+        // .add(const Duration(days: 1)); // 05:00 next day
 
     if (_shouldCheck(deviceCode, 'anomaly')) {
       final anomalyLogs = todayLogs.where((log) {

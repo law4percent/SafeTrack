@@ -30,7 +30,7 @@ class NotificationService {
       deviceCode.hashCode.abs() % 10000;
 
   // Payload key used to route tap → correct screen
-  static const String _payloadDeviceCodeKey = 'deviceCode';
+  // static const String _payloadDeviceCodeKey = 'deviceCode'; // Unused
 
   /// Called when the user taps a notification.
   /// Your navigator should listen to this stream.

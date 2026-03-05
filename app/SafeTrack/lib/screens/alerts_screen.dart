@@ -160,7 +160,7 @@ class _AlertScreenState extends State<AlertScreen> {
           Text(
             _filter == 'all'
                 ? 'Everything looks good! No alerts have been recorded.'
-                : 'No ${_filter} alerts found.',
+                : 'No $_filter alerts found.',
             style: const TextStyle(color: Colors.grey),
             textAlign: TextAlign.center,
           ),
@@ -222,7 +222,7 @@ class _AlertCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: config.color.withOpacity(0.15),
+                  color: config.color.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(config.icon, color: config.color, size: 24),
