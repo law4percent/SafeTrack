@@ -137,7 +137,7 @@ Your child only needs to know **one thing**: how to use the SOS button in an eme
 **Tell your child:**
 > "If you are in danger or need help, press and hold the red button for 3 seconds until the light flashes rapidly. This will immediately send an emergency alert to me."
 
-The child does **not** need to unlock anything, open any app, or have a phone. The SOS button works as long as the device is powered on and has cellular signal.
+The child does **not** need to unlock anything, open any app, or have a phone. The SOS button works as long as the device is powered on. Even if there is no cellular signal at that moment, the device will store the alert and automatically deliver it to you once signal is restored — usually within the next few minutes.
 
 ---
 
@@ -147,7 +147,9 @@ The child does **not** need to unlock anything, open any app, or have a phone. T
 
 The SOS button is the **large push button** on the device. When held for 3 seconds:
 1. The red LED flashes a rapid Morse code pattern (S·O·S)
-2. An emergency alert is immediately sent to Firebase
+2. An emergency alert is sent to your SafeTrack app
+   - If cellular signal is available: delivered **immediately**
+   - If no signal at that moment: stored on the device and delivered automatically once signal returns (within 5 minutes)
 3. Your SafeTrack app receives a high-priority push notification
 4. The Dashboard shows a red SOS banner on your child's card
 5. The SOS remains active for **60 seconds**, then automatically resets
@@ -156,7 +158,7 @@ The SOS button is the **large push button** on the device. When held for 3 secon
 
 1. **Press and hold** the button firmly
 2. **Keep holding** — a count of 3 seconds is needed
-3. The LED will flash rapidly — **this confirms SOS was sent**
+3. The LED will flash rapidly — **this confirms SOS was activated**. If the device has signal, the alert reaches you immediately. If not, it will be delivered automatically once signal is available.
 4. Release the button
 
 ### What You See as a Parent
@@ -180,8 +182,10 @@ If the SOS was pressed by mistake:
 | LED Pattern | Meaning | What To Do |
 |---|---|---|
 | 🟢 Green blinks ×3 on startup | ✅ Authorized and ready | Nothing — normal startup |
-| 🟢 Green blinks ×2 every 30s | ✅ Update sent successfully | Nothing — normal operation |
-| 🔴 Red blinks ×3 | ❌ Location update failed | Check cellular signal area |
+| 🟢 Green blinks ×2 every 30s | ✅ Location update sent successfully | Nothing — normal operation |
+| No green blink after 30s | ⚠️ Signal weak or lost this cycle — device retrying | Check signal area; device recovers automatically |
+| 🔴 Red blinks ×3 | ❌ Location log failed to send | Check cellular signal area |
+| 🔴 Red blinks ×2 | ❌ Device status update failed | Check cellular signal area |
 | 🔴 Red blinks continuously on startup | ❌ Not authorized | Contact school/administrator |
 | 🔴 Red slow blink (1 per second) | 🚨 SOS is active | Check on your child |
 | 🔴 Red rapid Morse pattern | 🚨 SOS just activated | Check app immediately |
@@ -242,6 +246,18 @@ This means the device cannot find its registration in the system.
 1. Check that SafeTrack app notifications are **Allowed** in your phone Settings → Apps → SafeTrack → Notifications.
 2. Check that your phone is not in Do Not Disturb mode.
 3. Verify your phone has an internet connection.
+
+> **Note — SOS may arrive late:** If your child triggered SOS while in an area with no cellular signal (such as inside a thick building or an underground area), the device stores the alert and sends it automatically once signal returns. This can take up to **5 minutes** after signal is restored. Do not assume the alert was lost — wait a few minutes before concluding it was not sent.
+
+---
+
+### Green LED stopped blinking every 30 seconds
+
+This does not always mean the device is off. In v4.4 firmware, the green LED only blinks when a location update is **successfully sent**. If the device is in a weak signal area, it will skip the green blink for that cycle and silently retry the next cycle (30 seconds later).
+
+1. Wait 1–2 minutes to see if green blinking resumes.
+2. If the device card in the app shows recent location data, tracking is working.
+3. If the card shows **Offline**, check SIM signal and data balance.
 
 ### Device gets very hot during charging
 
