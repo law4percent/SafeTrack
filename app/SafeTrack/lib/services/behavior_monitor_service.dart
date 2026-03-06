@@ -28,13 +28,6 @@ class BehaviorMonitorService {
   // ── Public API ────────────────────────────────────────────────
 
   /// Call this once after app launch AND from the background workmanager task.
-  ///
-  /// FIX (critical): removed in-memory _lastCheckDate — replaced with RTDB
-  /// existence check in _notYetFiredToday(). In-memory state is always empty
-  /// in a workmanager isolate, so the old _shouldCheck() always returned true,
-  /// causing alert spam (absent/late/anomaly re-firing every 15 min all day).
-  ///
-  /// FIX (minor): parallel device checks via Future.wait — was sequential.
   Future<void> runChecks() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -49,11 +42,10 @@ class BehaviorMonitorService {
       if (!devSnap.exists) return;
       final devices = devSnap.value as Map<dynamic, dynamic>;
 
-      // FIX (minor): parallel — was `for (entry) { await _checkDevice(...) }`
       await Future.wait(
         devices.entries.map((entry) async {
           final deviceCode = entry.key.toString();
-          final data = entry.value as Map<dynamic, dynamic>;
+          final data       = entry.value as Map<dynamic, dynamic>;
 
           final isEnabled = data['deviceEnabled']?.toString() == 'true';
           if (!isEnabled) return;
@@ -98,9 +90,6 @@ class BehaviorMonitorService {
         schoolTimeOut.hour, schoolTimeOut.minute);
     final graceEnd = todayIn.add(const Duration(minutes: 15));
 
-    // FIX (minor): limitToLast(200) — covers a full school day at 30s
-    // intervals (~96 entries) with headroom. Was unbounded .get() which
-    // downloaded the entire log history (thousands of entries after weeks).
     final logsSnap = await FirebaseDatabase.instance
         .ref('deviceLogs')
         .child(userId)
@@ -120,21 +109,14 @@ class BehaviorMonitorService {
         if (ts == 0) continue;
         final logDt = DateTime.fromMillisecondsSinceEpoch(ts);
 
-        // Only today's calendar-day logs
         if (logDt.year  != now.year  ||
             logDt.month != now.month ||
             logDt.day   != now.day)  continue;
 
-        // FIX B (part 1): Only live GPS fixes — firmware writes
-        // locationType: "gps" | "cached". Cached entries reuse stale
-        // coordinates/timestamps, causing false absent/late/anomaly results.
         final locationType = log['locationType']?.toString() ?? 'cached';
-        final isGps = locationType == 'gps';
-
-        // FIX B (part 2): Exclude SOS logs — device is in emergency mode;
-        // its timing should not feed late/absent/anomaly logic.
-        final sosVal = log['sos'];
-        final isSos  = sosVal == true || sosVal == 'true';
+        final isGps        = locationType == 'gps';
+        final sosVal       = log['sos'];
+        final isSos        = sosVal == true || sosVal == 'true';
 
         if (!isGps || isSos) continue;
 
@@ -165,7 +147,6 @@ class BehaviorMonitorService {
     // ── CHECK 2: Late ────────────────────────────────────────────
     if (schoolHourGpsLogs.isNotEmpty &&
         await _notYetFiredToday(userId, deviceCode, 'late')) {
-      // FIX B (part 3): schoolHourGpsLogs guaranteed GPS-only — safe to sort.
       final sorted = List<Map<dynamic, dynamic>>.from(schoolHourGpsLogs)
         ..sort((a, b) {
           final ta = (a['timestamp'] as num?)?.toInt() ?? 0;
@@ -189,8 +170,6 @@ class BehaviorMonitorService {
     }
 
     // ── CHECK 3: Anomaly ─────────────────────────────────────────
-    // FIX B (part 4): todayLogs is GPS+non-SOS only — cached logs replayed
-    // at 22:00 can no longer trigger false anomaly alerts.
     if (await _notYetFiredToday(userId, deviceCode, 'anomaly')) {
       final suspiciousStart =
           DateTime(now.year, now.month, now.day, 22, 0);
@@ -221,7 +200,6 @@ class BehaviorMonitorService {
 
   // ── Helpers ───────────────────────────────────────────────────
 
-  /// Write alert to RTDB and push local notification.
   Future<void> _fireAlert({
     required String userId,
     required String deviceCode,
@@ -230,7 +208,6 @@ class BehaviorMonitorService {
     required String message,
   }) async {
     try {
-      // Save to RTDB — same schema as path_monitor_service._saveAlertToRTDB
       final ref = FirebaseDatabase.instance
           .ref('alertLogs')
           .child(userId)
@@ -243,9 +220,6 @@ class BehaviorMonitorService {
         'timestamp': ServerValue.timestamp,
       });
 
-      // FIX A: deviceCode passed — notification_service.showBehaviorAlert
-      // requires it (FIX 8) so payload is deviceCode, consistent with
-      // deviation and SOS notifications.
       await NotificationService().showBehaviorAlert(
         childName: childName,
         deviceCode: deviceCode,
@@ -259,37 +233,46 @@ class BehaviorMonitorService {
     }
   }
 
-  /// FIX (critical): RTDB-backed cooldown — replaces in-memory _lastCheckDate.
+  /// FIX: Scoped alertLogs query — only downloads today's entries.
   ///
-  /// Queries alertLogs/{userId}/{deviceCode} for any entry where type matches
-  /// AND timestamp falls within today's calendar day. Returns true (proceed)
-  /// only when no such entry exists.
+  /// Previous implementation fetched the ENTIRE alertLogs node for a device
+  /// (unbounded .get()), which grew by ~3 entries per school day indefinitely.
+  /// After 30 school days that was 90+ entries downloaded on every background
+  /// task invocation just to check a boolean.
   ///
-  /// Isolate-safe: reads from RTDB which persists across workmanager task
-  /// restarts. The old in-memory map was always empty in background isolates,
-  /// making every 15-min task fire every alert type again.
+  /// Fix: orderByChild('timestamp').startAt(todayStart) limits the Firebase
+  /// read to entries written today. The result is O(alerts today) instead of
+  /// O(alerts all time).
+  ///
+  /// Isolate-safe: reads from RTDB which persists across workmanager restarts.
   Future<bool> _notYetFiredToday(
       String userId, String deviceCode, String type) async {
     try {
+      final now        = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day)
+          .millisecondsSinceEpoch
+          .toDouble(); // startAt requires double
+
+      // FIX: scope the query to today only — was an unbounded .get() that
+      // downloaded the full alertLogs history for the device.
       final snap = await FirebaseDatabase.instance
           .ref('alertLogs')
           .child(userId)
           .child(deviceCode)
+          .orderByChild('timestamp')
+          .startAt(todayStart)
           .get();
 
       if (!snap.exists || snap.value == null) return true;
 
-      final entries    = snap.value as Map<dynamic, dynamic>;
-      final now        = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day)
-          .millisecondsSinceEpoch;
-      final todayEnd   = todayStart + const Duration(days: 1).inMilliseconds;
+      final entries  = snap.value as Map<dynamic, dynamic>;
+      final todayEnd = todayStart + const Duration(days: 1).inMilliseconds;
 
       for (final entry in entries.values) {
         if (entry is! Map) continue;
         if (entry['type']?.toString() != type) continue;
         final ts = (entry['timestamp'] as num?)?.toInt() ?? 0;
-        if (ts >= todayStart && ts < todayEnd) return false; // already fired
+        if (ts >= todayStart && ts < todayEnd) return false;
       }
       return true;
     } catch (e) {
@@ -299,8 +282,6 @@ class BehaviorMonitorService {
   }
 
   /// Parse "HH:MM" into a DateTime (date part is today).
-  /// Same format written by my_children_screen.dart formatTimeOfDay()
-  /// and read by gemini_service._buildFirebaseContext().
   DateTime? _parseHHMM(String hhmm) {
     final parts = hhmm.split(':');
     if (parts.length != 2) return null;

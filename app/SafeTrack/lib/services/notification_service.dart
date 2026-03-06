@@ -29,34 +29,36 @@ class NotificationService {
   static const String _behaviorChannelDesc =
       'Alerts for late arrivals, absences, and anomalies';
 
-  // ── Notification ID helpers ───────────────────────────────────
+  // ── Notification ID ranges ────────────────────────────────────
   //
-  // Each deviceCode gets its own integer slot so notifications
-  // update in place rather than stacking.
+  // FIX: Each alert type occupies a dedicated, non-overlapping integer range
+  // so notifications from different alert types can NEVER collide regardless
+  // of how many devices a parent links.
   //
-  // Deviation slot: deviceCode.hashCode % 10000
-  // SOS slot      : (deviation slot + 5000) % 10000
-  // Behavior slot : FIX 6 — combine childName AND type so two
-  //                 children with different names never collide
-  //                 on the same alert type.
-  //                 Old: type.hashCode & 0x7FFFFFFF  (same for all children)
-  //                 New: (childName.hashCode ^ type.hashCode) & 0x7FFFFFFF
+  // Previous design used % 10000 for deviation and (deviationId + 5000) % 10000
+  // for SOS — both lived in 0–9999. With enough devices, a new device's
+  // deviationId could equal another device's sosId, causing one notification
+  // to silently overwrite the other in the system tray.
+  //
+  // New ranges (each has 50,000 slots = plenty of headroom):
+  //   Deviation : 1,000,000 – 1,049,999
+  //   SOS       : 2,000,000 – 2,049,999
+  //   Behavior  : 3,000,000 – 3,049,999
+  //
+  // The 950,001-wide gap between each range guarantees zero cross-type overlap.
 
   static int _deviationNotifId(String deviceCode) =>
-      deviceCode.hashCode.abs() % 10000;
+      1000000 + (deviceCode.hashCode.abs() % 50000);
 
   static int _sosNotifId(String deviceCode) =>
-      (_deviationNotifId(deviceCode) + 5000) % 10000;
+      2000000 + (deviceCode.hashCode.abs() % 50000);
 
-  // FIX 6: behavior alert ID now unique per child+type combination.
-  // Uses deviceCode (not childName) to stay consistent with the
-  // pattern used by deviation and SOS IDs, and to support
-  // cancelAllForDevice correctly.
+  // Unique per device+type combination so two children can both have
+  // outstanding "late" alerts simultaneously without one overwriting the other.
   static int _behaviorNotifId(String deviceCode, String type) =>
-      (deviceCode.hashCode ^ type.hashCode) & 0x7FFFFFFF;
+      3000000 + ((deviceCode.hashCode ^ type.hashCode).abs() % 50000);
 
-  /// Called when the user taps a notification.
-  /// Navigator listens to this to route to the correct screen.
+  /// Set by the tap handler so the navigator can route to the right screen.
   static String? pendingDeviceCode;
 
   // ── Initialization ────────────────────────────────────────────
@@ -117,9 +119,6 @@ class NotificationService {
       ),
     );
 
-    // Create behavior channel at init time so it's ready before
-    // the first showBehaviorAlert call (previously created on-demand
-    // which risked a race condition on first use).
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         _behaviorChannelId,
@@ -159,7 +158,7 @@ class NotificationService {
   // ── Deviation alert ───────────────────────────────────────────
 
   Future<void> showDeviationAlert(DeviationEvent event) async {
-    final notifId = _deviationNotifId(event.deviceCode);
+    final notifId  = _deviationNotifId(event.deviceCode);
     final distance = event.distanceMeters.toStringAsFixed(0);
 
     final androidDetails = AndroidNotificationDetails(
@@ -193,11 +192,12 @@ class NotificationService {
       '⚠️ ${event.childName} Off Route',
       '${distance}m from "${event.routeName}" — Tap to view location',
       NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: event.deviceCode, // consistent: always deviceCode
+      payload: event.deviceCode,
     );
 
     debugPrint(
-        '[NotificationService] Deviation alert shown for ${event.childName}');
+        '[NotificationService] Deviation alert shown for ${event.childName} '
+        '(notifId: $notifId)');
   }
 
   // ── SOS alert ─────────────────────────────────────────────────
@@ -237,31 +237,20 @@ class NotificationService {
       '🆘 SOS — $childName',
       'Emergency alert triggered! Tap to view location.',
       NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: deviceCode, // consistent: always deviceCode
+      payload: deviceCode,
     );
 
     debugPrint(
-        '[NotificationService] SOS alert shown for $childName');
+        '[NotificationService] SOS alert shown for $childName '
+        '(notifId: $notifId)');
   }
 
   // ── Behavior alert ────────────────────────────────────────────
-  //
-  // FIX 6: notifId now uses _behaviorNotifId(deviceCode, type)
-  //        so each child+type pair gets its own slot.
-  //        Old: type.hashCode & 0x7FFFFFFF (all children shared same ID)
-  //
-  // FIX 8: payload is now deviceCode (was childName).
-  //        All three alert types now consistently pass deviceCode as
-  //        payload so _onNotificationTapped can always set
-  //        pendingDeviceCode correctly and navigate to the right screen.
-  //
-  // Added deviceCode as required parameter — callers (e.g.
-  // background_monitor_service.dart) must pass it in.
 
   Future<void> showBehaviorAlert({
     required String childName,
-    required String deviceCode, // FIX 8: added, replaces childName as payload
-    required String type,       // 'late' | 'absent' | 'anomaly'
+    required String deviceCode,
+    required String type,   // 'late' | 'absent' | 'anomaly'
     required String message,
   }) async {
     final titles = {
@@ -269,10 +258,7 @@ class NotificationService {
       'absent':  '📋 Possible Absence — $childName',
       'anomaly': '⚠️ Unusual Activity — $childName',
     };
-    final title = titles[type] ?? '🔔 Alert — $childName';
-
-    // FIX 6: unique ID per child+type — prevents second child's
-    // alert overwriting the first when both are late at the same time.
+    final title   = titles[type] ?? '🔔 Alert — $childName';
     final notifId = _behaviorNotifId(deviceCode, type);
 
     await _plugin.show(
@@ -294,11 +280,12 @@ class NotificationService {
           presentSound: true,
         ),
       ),
-      payload: deviceCode, // FIX 8: was childName — now deviceCode
+      payload: deviceCode,
     );
 
     debugPrint(
-        '[NotificationService] Behavior alert shown: $type for $childName');
+        '[NotificationService] Behavior alert shown: $type for $childName '
+        '(notifId: $notifId)');
   }
 
   // ── Cancel helpers ────────────────────────────────────────────
@@ -308,13 +295,11 @@ class NotificationService {
     await _plugin.cancel(_deviationNotifId(deviceCode));
   }
 
-  /// FIX 7: Cancel ALL notification slots for a given device —
+  /// Cancel ALL notification slots for a given device —
   /// deviation, SOS, and all known behavior alert types.
-  /// Call this when a device is removed or goes back online normally.
   Future<void> cancelAllForDevice(String deviceCode) async {
     await _plugin.cancel(_deviationNotifId(deviceCode));
     await _plugin.cancel(_sosNotifId(deviceCode));
-    // Cancel behavior alerts for all known types
     for (final type in ['late', 'absent', 'anomaly']) {
       await _plugin.cancel(_behaviorNotifId(deviceCode, type));
     }
@@ -332,8 +317,6 @@ class NotificationService {
   static void _onNotificationTapped(NotificationResponse response) {
     final deviceCode = response.payload;
     if (deviceCode != null && deviceCode.isNotEmpty) {
-      // All three alert types now consistently use deviceCode as payload
-      // so this handler always receives the correct value to navigate with.
       pendingDeviceCode = deviceCode;
       debugPrint(
           '[NotificationService] Tapped — navigate to $deviceCode');
@@ -341,7 +324,7 @@ class NotificationService {
   }
 }
 
-// Must be a top-level function for background tap handling
+// Must be a top-level function for background tap handling.
 @pragma('vm:entry-point')
 void _onBackgroundNotificationTapped(NotificationResponse response) {
   final deviceCode = response.payload;
