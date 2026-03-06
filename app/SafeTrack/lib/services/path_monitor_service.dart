@@ -122,7 +122,10 @@ class PathMonitorService {
       final currentCodes =
           devicesData.keys.map((k) => k.toString()).toSet();
 
-      // Start new listeners for newly added devices
+      // Start new listeners for newly added+enabled devices.
+      // Also cancel listeners for devices that are still present
+      // but have been disabled — this is the gap that allowed
+      // deviation notifications to fire after a parent disables a device.
       for (final entry in devicesData.entries) {
         final deviceCode = entry.key.toString();
         final deviceData = entry.value as Map<dynamic, dynamic>;
@@ -131,7 +134,20 @@ class PathMonitorService {
         final childName =
             deviceData['childName']?.toString() ?? 'Unknown';
 
-        if (!isEnabled) continue;
+        if (!isEnabled) {
+          // Device is disabled — stop any active listener for it
+          if (_logListeners.containsKey(deviceCode)) {
+            _logListeners[deviceCode]?.cancel();
+            _logListeners.remove(deviceCode);
+            _routeListeners[deviceCode]?.cancel();
+            _routeListeners.remove(deviceCode);
+            _routeCache.remove(deviceCode);
+            _lastLogKey.remove(deviceCode);
+            debugPrint(
+                '[PathMonitor] Listener stopped — device disabled: $deviceCode');
+          }
+          continue;
+        }
 
         if (!_logListeners.containsKey(deviceCode)) {
           await _subscribeToRoutes(userId, deviceCode);

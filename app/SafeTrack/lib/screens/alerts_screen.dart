@@ -64,60 +64,111 @@ class _AlertScreenState extends State<AlertScreen> {
               ),
             ),
           ),
-          // Alert list — streams all devices
+          // Alert list — streams alertLogs AND live device names.
+          // Bug fix: childName is baked into each alert at write time,
+          // so renames never propagate. We load the live name map from
+          // linkedDevices and substitute it at render time, falling back
+          // to the stored name only if the device has been removed.
           Expanded(
             child: StreamBuilder<DatabaseEvent>(
               stream: FirebaseDatabase.instance
-                  .ref('alertLogs')
+                  .ref('linkedDevices')
                   .child(user.uid)
+                  .child('devices')
                   .onValue,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData ||
-                    snapshot.data!.snapshot.value == null) {
-                  return _buildEmpty();
-                }
-
-                final allAlerts = <_AlertEntry>[];
-                final raw = snapshot.data!.snapshot.value
-                    as Map<dynamic, dynamic>;
-
-                // Flatten: alertLogs/{uid}/{deviceCode}/{pushId} → list
-                for (final deviceEntry in raw.entries) {
-                  final deviceCode = deviceEntry.key.toString();
-                  if (deviceEntry.value is! Map) continue;
-                  final logs = deviceEntry.value as Map<dynamic, dynamic>;
-                  for (final logEntry in logs.entries) {
-                    if (logEntry.value is! Map) continue;
-                    final data = logEntry.value as Map<dynamic, dynamic>;
-                    final type = data['type']?.toString() ?? 'unknown';
-                    if (_filter != 'all' && type != _filter) continue;
-                    allAlerts.add(_AlertEntry(
-                      pushId: logEntry.key.toString(),
-                      deviceCode: deviceCode,
-                      type: type,
-                      childName: data['childName']?.toString() ?? 'Unknown',
-                      message: data['message']?.toString() ?? '',
-                      timestamp: (data['timestamp'] as num?)?.toInt() ?? 0,
-                      distanceMeters:
-                          (data['distanceMeters'] as num?)?.toDouble(),
-                      routeName: data['routeName']?.toString(),
-                    ));
+              builder: (context, deviceSnap) {
+                // Build a live deviceCode → childName map
+                final liveNames = <String, String>{};
+                if (deviceSnap.hasData &&
+                    deviceSnap.data!.snapshot.value != null) {
+                  final devData = deviceSnap.data!.snapshot.value
+                      as Map<dynamic, dynamic>;
+                  for (final e in devData.entries) {
+                    if (e.value is Map) {
+                      final name = (e.value as Map<dynamic, dynamic>)['childName']
+                              ?.toString() ??
+                          '';
+                      if (name.isNotEmpty) {
+                        liveNames[e.key.toString()] = name;
+                      }
+                    }
                   }
                 }
 
-                if (allAlerts.isEmpty) return _buildEmpty();
+                return StreamBuilder<DatabaseEvent>(
+                  stream: FirebaseDatabase.instance
+                      .ref('alertLogs')
+                      .child(user.uid)
+                      .onValue,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(
+                          child: CircularProgressIndicator());
+                    }
+                    if (!snapshot.hasData ||
+                        snapshot.data!.snapshot.value == null) {
+                      return _buildEmpty();
+                    }
 
-                // Sort newest first
-                allAlerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+                    final allAlerts = <_AlertEntry>[];
+                    final raw = snapshot.data!.snapshot.value
+                        as Map<dynamic, dynamic>;
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: allAlerts.length,
-                  itemBuilder: (context, i) =>
-                      _AlertCard(alert: allAlerts[i], userId: user.uid),
+                    // Flatten: alertLogs/{uid}/{deviceCode}/{pushId} → list
+                    for (final deviceEntry in raw.entries) {
+                      final deviceCode =
+                          deviceEntry.key.toString();
+                      if (deviceEntry.value is! Map) continue;
+                      final logs = deviceEntry.value
+                          as Map<dynamic, dynamic>;
+                      for (final logEntry in logs.entries) {
+                        if (logEntry.value is! Map) continue;
+                        final data = logEntry.value
+                            as Map<dynamic, dynamic>;
+                        final type =
+                            data['type']?.toString() ?? 'unknown';
+                        if (_filter != 'all' && type != _filter) {
+                          continue;
+                        }
+                        // Bug fix: prefer live name, fall back to
+                        // stored name if device was removed.
+                        final storedName =
+                            data['childName']?.toString() ??
+                                'Unknown';
+                        final childName =
+                            liveNames[deviceCode] ?? storedName;
+
+                        allAlerts.add(_AlertEntry(
+                          pushId: logEntry.key.toString(),
+                          deviceCode: deviceCode,
+                          type: type,
+                          childName: childName,
+                          message: data['message']?.toString() ?? '',
+                          timestamp: (data['timestamp'] as num?)
+                                  ?.toInt() ??
+                              0,
+                          distanceMeters:
+                              (data['distanceMeters'] as num?)
+                                  ?.toDouble(),
+                          routeName: data['routeName']?.toString(),
+                        ));
+                      }
+                    }
+
+                    if (allAlerts.isEmpty) return _buildEmpty();
+
+                    // Sort newest first
+                    allAlerts.sort(
+                        (a, b) => b.timestamp.compareTo(a.timestamp));
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: allAlerts.length,
+                      itemBuilder: (context, i) => _AlertCard(
+                          alert: allAlerts[i], userId: user.uid),
+                    );
+                  },
                 );
               },
             ),
@@ -160,7 +211,7 @@ class _AlertScreenState extends State<AlertScreen> {
           Text(
             _filter == 'all'
                 ? 'Everything looks good! No alerts have been recorded.'
-                : 'No $_filter alerts found.',
+                : 'No ${_filter} alerts found.',
             style: const TextStyle(color: Colors.grey),
             textAlign: TextAlign.center,
           ),
@@ -222,7 +273,7 @@ class _AlertCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: config.color.withValues(alpha: 0.15),
+                  color: config.color.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(config.icon, color: config.color, size: 24),
