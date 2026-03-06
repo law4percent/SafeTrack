@@ -424,6 +424,55 @@ class PathMonitorService {
     _onDeviationDetected?.call(event);
   }
 
+  // ── Public alert writers ──────────────────────────────────────
+  // These expose _saveAlertToRTDB for callers outside this service
+  // (dashboard_screen for SOS, background_monitor_service for behavior).
+  // All write to alertLogs/{uid}/{deviceCode}/{pushId} — the same path
+  // alert_screen.dart reads and gemini_service reads for AI context.
+
+  /// Save an SOS alert to alertLogs.
+  /// Call from dashboard_screen._listenToSOS() when sos becomes true,
+  /// alongside NotificationService().showSosAlert().
+  /// This ensures the SOS filter in alert_screen is never empty and
+  /// gemini_service sees SOS history in its Firebase context.
+  Future<void> saveSosAlert({
+    required String deviceCode,
+    required String childName,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final loc = (latitude != null && longitude != null &&
+            !(latitude == 0 && longitude == 0))
+        ? 'Last location: Lat ${latitude.toStringAsFixed(5)}, '
+          'Lng ${longitude.toStringAsFixed(5)}.'
+        : 'Location unavailable at time of alert.';
+    await _saveAlertToRTDB(
+      deviceCode: deviceCode,
+      childName: childName,
+      type: 'sos',
+      message: '$childName triggered an SOS emergency alert. $loc',
+    );
+  }
+
+  /// Save any alert type to alertLogs.
+  /// Use for 'late', 'absent', 'anomaly' from behavior_monitor_service
+  /// or any future alert type. behavior_monitor_service._fireAlert already
+  /// writes directly to RTDB — this method exists as a convenience for
+  /// callers that don't have direct Firebase access (e.g. background tasks).
+  Future<void> saveAlert({
+    required String deviceCode,
+    required String childName,
+    required String type,
+    required String message,
+  }) async {
+    await _saveAlertToRTDB(
+      deviceCode: deviceCode,
+      childName: childName,
+      type: type,
+      message: message,
+    );
+  }
+
   /// Write alert entry to RTDB.
   /// Path: alertLogs/{userId}/{deviceCode}/{pushId}
   Future<void> _saveAlertToRTDB({

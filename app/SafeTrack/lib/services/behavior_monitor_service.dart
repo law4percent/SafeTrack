@@ -17,7 +17,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
-// import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // Used
 import 'notification_service.dart';
 
 class BehaviorMonitorService {
@@ -57,7 +56,7 @@ class BehaviorMonitorService {
         if (!isEnabled) continue;
 
         final childName = data['childName']?.toString() ?? 'Unknown';
-        final timeInStr = data['schoolTimeIn']?.toString() ?? '';
+        final timeInStr  = data['schoolTimeIn']?.toString()  ?? '';
         final timeOutStr = data['schoolTimeOut']?.toString() ?? '';
 
         // Skip if schedule not configured
@@ -103,8 +102,8 @@ class BehaviorMonitorService {
         .child(deviceCode)
         .get();
 
-    final todayLogs = <Map<dynamic, dynamic>>[];
-    final schoolHourLogs = <Map<dynamic, dynamic>>[];
+    final todayLogs        = <Map<dynamic, dynamic>>[];
+    final schoolHourGpsLogs = <Map<dynamic, dynamic>>[];
 
     if (logsSnap.exists && logsSnap.value is Map) {
       final raw = logsSnap.value as Map<dynamic, dynamic>;
@@ -114,45 +113,69 @@ class BehaviorMonitorService {
         final ts = (log['timestamp'] as num?)?.toInt() ?? 0;
         if (ts == 0) continue;
         final logDt = DateTime.fromMillisecondsSinceEpoch(ts);
+
         // Only today's logs
-        if (logDt.year == now.year &&
-            logDt.month == now.month &&
-            logDt.day == now.day) {
-          todayLogs.add(log);
-          if (logDt.isAfter(todayIn) && logDt.isBefore(todayOut)) {
-            schoolHourLogs.add(log);
-          }
+        if (logDt.year != now.year ||
+            logDt.month != now.month ||
+            logDt.day != now.day) continue;
+
+        // FIX B (part 1): Only count live GPS fixes for behavior analysis.
+        // Firmware writes locationType: "gps" | "cached".
+        // Cached entries reuse stale coordinates and timestamps — including
+        // them in absent/late/anomaly checks produces false results:
+        //   • Absent: a cached log makes the child appear present when they're not.
+        //   • Late:   a cached log with an early timestamp makes a late child appear on time.
+        //   • Anomaly: a cached log replayed at 22:00 fires a false outside-hours alert.
+        // Same guard applied in path_monitor_service for deviation checks.
+        final locationType = log['locationType']?.toString() ?? 'cached';
+        final isGps = locationType == 'gps';
+
+        // FIX B (part 2): Also exclude SOS logs from behavior analysis.
+        // When SOS is active the device is in emergency mode — its position
+        // and timing should not feed into late/absent/anomaly logic.
+        // Same guard applied in path_monitor_service.
+        final sosVal = log['sos'];
+        final isSos = sosVal == true || sosVal == 'true';
+
+        if (!isGps || isSos) continue;
+
+        todayLogs.add(log);
+
+        if (logDt.isAfter(todayIn) && logDt.isBefore(todayOut)) {
+          schoolHourGpsLogs.add(log);
         }
       }
     }
 
-    // ── CHECK 1: Absent ──────────────────────────────────────
-    // Zero pings during school hours and it's already past grace period
-    if (now.isAfter(graceEnd) && now.isBefore(todayOut)) {
-      if (schoolHourLogs.isEmpty && _shouldCheck(deviceCode, 'absent')) {
-        await _fireAlert(
-          userId: userId,
-          deviceCode: deviceCode,
-          childName: childName,
-          type: 'absent',
-          message: '$childName has not been detected during school hours today '
-              '(${_fmt(todayIn)} – ${_fmt(todayOut)}). '
-              'They may be absent. Please verify.',
-        );
-      }
+    // ── CHECK 1: Absent ──────────────────────────────────────────
+    // Zero live GPS pings during school hours after grace period ends.
+    if (now.isAfter(graceEnd) &&
+        now.isBefore(todayOut) &&
+        schoolHourGpsLogs.isEmpty &&
+        _shouldCheck(deviceCode, 'absent')) {
+      await _fireAlert(
+        userId: userId,
+        deviceCode: deviceCode,
+        childName: childName,
+        type: 'absent',
+        message: '$childName has not been detected during school hours today '
+            '(${_fmt(todayIn)} – ${_fmt(todayOut)}). '
+            'They may be absent. Please verify.',
+      );
     }
 
-    // ── CHECK 2: Late ────────────────────────────────────────
-    // First ping today is after graceEnd (schoolTimeIn + 15 min)
-    if (schoolHourLogs.isNotEmpty && _shouldCheck(deviceCode, 'late')) {
-      final sortedLogs = List<Map<dynamic, dynamic>>.from(schoolHourLogs)
+    // ── CHECK 2: Late ────────────────────────────────────────────
+    // First live GPS ping during school hours is after graceEnd.
+    if (schoolHourGpsLogs.isNotEmpty && _shouldCheck(deviceCode, 'late')) {
+      // FIX B (part 3): Sort only GPS-verified logs — already guaranteed
+      // by schoolHourGpsLogs containing only isGps == true entries.
+      final sorted = List<Map<dynamic, dynamic>>.from(schoolHourGpsLogs)
         ..sort((a, b) {
           final ta = (a['timestamp'] as num?)?.toInt() ?? 0;
           final tb = (b['timestamp'] as num?)?.toInt() ?? 0;
           return ta.compareTo(tb);
         });
-      final firstTs =
-          (sortedLogs.first['timestamp'] as num?)?.toInt() ?? 0;
+      final firstTs = (sorted.first['timestamp'] as num?)?.toInt() ?? 0;
       final firstDt = DateTime.fromMillisecondsSinceEpoch(firstTs);
       if (firstDt.isAfter(graceEnd)) {
         final lateBy = firstDt.difference(todayIn).inMinutes;
@@ -168,24 +191,27 @@ class BehaviorMonitorService {
       }
     }
 
-    // ── CHECK 3: Anomaly ─────────────────────────────────────
-    // Movement detected outside school hours (before 06:00 or after 20:00)
-    // Using a "suspicious hours" window — adjustable
-    final suspiciousStart = DateTime(now.year, now.month, now.day, 22, 0);
-    // final suspiciousEnd   = DateTime(now.year, now.month, now.day, 5, 0) // Unused
-        // .add(const Duration(days: 1)); // 05:00 next day
-
+    // ── CHECK 3: Anomaly ─────────────────────────────────────────
+    // Live GPS movement detected at suspicious hours (after 22:00 or before 05:00).
+    // FIX B (part 4): todayLogs now contains only GPS+non-SOS entries so
+    // a cached log replayed at 22:00 can no longer trigger a false anomaly.
     if (_shouldCheck(deviceCode, 'anomaly')) {
+      final suspiciousStart =
+          DateTime(now.year, now.month, now.day, 22, 0);
+      final suspiciousEnd =
+          DateTime(now.year, now.month, now.day, 5, 0);
+
       final anomalyLogs = todayLogs.where((log) {
         final ts = (log['timestamp'] as num?)?.toInt() ?? 0;
         if (ts == 0) return false;
         final dt = DateTime.fromMillisecondsSinceEpoch(ts);
-        return dt.isAfter(suspiciousStart) || dt.isBefore(
-            DateTime(now.year, now.month, now.day, 5, 0));
+        return dt.isAfter(suspiciousStart) ||
+            dt.isBefore(suspiciousEnd);
       }).toList();
 
       if (anomalyLogs.isNotEmpty) {
-        final ts = (anomalyLogs.first['timestamp'] as num?)?.toInt() ?? 0;
+        final ts =
+            (anomalyLogs.first['timestamp'] as num?)?.toInt() ?? 0;
         final dt = DateTime.fromMillisecondsSinceEpoch(ts);
         await _fireAlert(
           userId: userId,
@@ -211,7 +237,8 @@ class BehaviorMonitorService {
     required String message,
   }) async {
     try {
-      // Save to RTDB
+      // Save to RTDB — same schema as path_monitor_service._saveAlertToRTDB
+      // and alert_screen._AlertEntry expects.
       final ref = FirebaseDatabase.instance
           .ref('alertLogs')
           .child(userId)
@@ -224,9 +251,14 @@ class BehaviorMonitorService {
         'timestamp': ServerValue.timestamp,
       });
 
-      // Push local notification
+      // FIX A: Pass deviceCode to showBehaviorAlert.
+      // notification_service.showBehaviorAlert now requires deviceCode
+      // (added in FIX 8) so the notification payload is deviceCode,
+      // consistent with deviation and SOS alerts. Without this the
+      // call would not compile after the notification_service fix.
       await NotificationService().showBehaviorAlert(
         childName: childName,
+        deviceCode: deviceCode, // FIX A: was missing — causes compile error
         type: type,
         message: message,
       );
@@ -240,6 +272,9 @@ class BehaviorMonitorService {
   }
 
   /// Returns true if this check hasn't run today for this device+type.
+  /// NOTE: _lastCheckDate is in-memory. If the app is killed and relaunched
+  /// on the same school day, checks will re-run. For a production app,
+  /// persist this to RTDB or SharedPreferences keyed by date string.
   bool _shouldCheck(String deviceCode, String type) {
     final key = '${deviceCode}_$type';
     final last = _lastCheckDate[key];
@@ -251,6 +286,8 @@ class BehaviorMonitorService {
   }
 
   /// Parse "HH:MM" into a DateTime (date part is today).
+  /// Same format written by my_children_screen.dart LinkedDevice.formatTimeOfDay()
+  /// and read by gemini_service._buildFirebaseContext().
   DateTime? _parseHHMM(String hhmm) {
     final parts = hhmm.split(':');
     if (parts.length != 2) return null;
@@ -263,5 +300,6 @@ class BehaviorMonitorService {
 
   /// Format DateTime as "HH:MM".
   String _fmt(DateTime dt) =>
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      '${dt.hour.toString().padLeft(2, '0')}:'
+      '${dt.minute.toString().padLeft(2, '0')}';
 }
