@@ -54,12 +54,22 @@ class PathMonitorService {
   /// Tracks the last processed log key per device to avoid re-processing.
   final Map<String, String> _lastLogKey = {};
 
+  // FIX 3: secondary timestamp guard so a service restart doesn't
+  // re-process the last known log entry.
+  // Uses firmware's 'lastUpdate' server timestamp (Unix ms int).
+  final Map<String, int> _lastLogTimestamp = {};
+
   /// Cooldown tracker: deviceCode → last deviation notification time.
   /// Prevents spamming the parent with repeated alerts.
   final Map<String, DateTime> _lastAlertTime = {};
 
   /// Minimum time between alerts for the same device (5 minutes).
   static const Duration _alertCooldown = Duration(minutes: 5);
+
+  // FIX 5: school hours cache per device.
+  // Populated when _subscribeToDevices processes linkedDevices snapshot.
+  // Stored as "HH:MM" strings matching firmware/my_children_screen format.
+  final Map<String, _SchoolSchedule> _schoolSchedules = {};
 
   OnDeviationDetected? _onDeviationDetected;
   bool _isRunning = false;
@@ -70,7 +80,8 @@ class PathMonitorService {
   // ── Public API ────────────────────────────────────────────────
 
   /// Start monitoring all linked devices for the current user.
-  Future<void> start({required OnDeviationDetected onDeviationDetected}) async {
+  Future<void> start(
+      {required OnDeviationDetected onDeviationDetected}) async {
     if (_isRunning) return;
     _isRunning = true;
     _onDeviationDetected = onDeviationDetected;
@@ -98,7 +109,9 @@ class PathMonitorService {
     _routeListeners.clear();
     _routeCache.clear();
     _lastLogKey.clear();
+    _lastLogTimestamp.clear(); // FIX 3
     _lastAlertTime.clear();
+    _schoolSchedules.clear();  // FIX 5
     _isRunning = false;
     _onDeviationDetected = null;
     debugPrint('[PathMonitor] Stopped');
@@ -122,10 +135,6 @@ class PathMonitorService {
       final currentCodes =
           devicesData.keys.map((k) => k.toString()).toSet();
 
-      // Start new listeners for newly added+enabled devices.
-      // Also cancel listeners for devices that are still present
-      // but have been disabled — this is the gap that allowed
-      // deviation notifications to fire after a parent disables a device.
       for (final entry in devicesData.entries) {
         final deviceCode = entry.key.toString();
         final deviceData = entry.value as Map<dynamic, dynamic>;
@@ -134,8 +143,17 @@ class PathMonitorService {
         final childName =
             deviceData['childName']?.toString() ?? 'Unknown';
 
+        // FIX 5: Cache school schedule whenever linkedDevices fires.
+        // schoolTimeIn / schoolTimeOut are written as "HH:MM" strings
+        // by my_children_screen.dart's LinkedDevice.formatTimeOfDay().
+        // gemini_service also reads these same fields with the same format.
+        final timeIn  = deviceData['schoolTimeIn']?.toString() ?? '';
+        final timeOut = deviceData['schoolTimeOut']?.toString() ?? '';
+        _schoolSchedules[deviceCode] =
+            _SchoolSchedule(timeIn: timeIn, timeOut: timeOut);
+
         if (!isEnabled) {
-          // Device is disabled — stop any active listener for it
+          // Device disabled — cancel any active listener
           if (_logListeners.containsKey(deviceCode)) {
             _logListeners[deviceCode]?.cancel();
             _logListeners.remove(deviceCode);
@@ -143,6 +161,7 @@ class PathMonitorService {
             _routeListeners.remove(deviceCode);
             _routeCache.remove(deviceCode);
             _lastLogKey.remove(deviceCode);
+            _lastLogTimestamp.remove(deviceCode); // FIX 3
             debugPrint(
                 '[PathMonitor] Listener stopped — device disabled: $deviceCode');
           }
@@ -165,6 +184,8 @@ class PathMonitorService {
         _routeListeners.remove(code);
         _routeCache.remove(code);
         _lastLogKey.remove(code);
+        _lastLogTimestamp.remove(code); // FIX 3
+        _schoolSchedules.remove(code);  // FIX 5
         debugPrint('[PathMonitor] Removed listener for $code');
       }
     });
@@ -199,8 +220,7 @@ class PathMonitorService {
         final pathName =
             data['pathName']?.toString() ?? 'Unnamed Route';
 
-        final waypoints =
-            _parseWaypoints(data['waypoints']);
+        final waypoints = _parseWaypoints(data['waypoints']);
         if (waypoints.length < 2) continue;
 
         routes.add(_RouteData(
@@ -234,12 +254,87 @@ class PathMonitorService {
     final sub = logsRef.limitToLast(1).onChildAdded.listen((event) {
       final logKey = event.snapshot.key ?? '';
 
-      // Skip if we already processed this key
+      // FIX 3 (part A): key-based dedup — same as before
       if (_lastLogKey[deviceCode] == logKey) return;
-      _lastLogKey[deviceCode] = logKey;
 
-      final logData = event.snapshot.value as Map<dynamic, dynamic>?;
+      final logData =
+          event.snapshot.value as Map<dynamic, dynamic>?;
       if (logData == null) return;
+
+      // FIX 3 (part B): timestamp-based secondary guard.
+      // Prevents re-processing the most recent log when the service
+      // restarts and onChildAdded replays the last stored entry.
+      // firmware writes 'lastUpdate' as a Firebase server timestamp (int ms).
+      final logTimestamp = _toInt(logData['lastUpdate']);
+      final lastKnownTs = _lastLogTimestamp[deviceCode] ?? 0;
+      if (logTimestamp > 0 && logTimestamp <= lastKnownTs) {
+        debugPrint(
+            '[PathMonitor] Skipping already-processed log for $deviceCode '
+            '(ts: $logTimestamp ≤ last: $lastKnownTs)');
+        return;
+      }
+
+      // FIX 1: Only process live GPS fixes.
+      // Firmware writes locationType: "gps" | "cached".
+      // Cached entries reuse stale coordinates — running deviation
+      // checks against them produces false positives because the child
+      // may be on route now but the cached position was recorded earlier.
+      final locationType =
+          logData['locationType']?.toString() ?? 'cached';
+      if (locationType != 'gps') {
+        debugPrint(
+            '[PathMonitor] Skipping $locationType log for $deviceCode '
+            '— only live GPS fixes are checked for deviation');
+        _lastLogKey[deviceCode] = logKey; // still advance the key
+        if (logTimestamp > lastKnownTs) {
+          _lastLogTimestamp[deviceCode] = logTimestamp;
+        }
+        return;
+      }
+
+      // FIX 2: Skip deviation check when SOS is already active.
+      // The firmware writes sos as a bool. dashboard_screen._listenToSOS()
+      // also guards on sosVal == true || sosVal == 'true' for consistency.
+      // No need to stack a deviation alert on top of an SOS alert.
+      final sosVal = logData['sos'];
+      final isSos = sosVal == true || sosVal == 'true';
+      if (isSos) {
+        debugPrint(
+            '[PathMonitor] Skipping deviation check for $deviceCode '
+            '— SOS is active, emergency already signalled');
+        _lastLogKey[deviceCode] = logKey;
+        if (logTimestamp > lastKnownTs) {
+          _lastLogTimestamp[deviceCode] = logTimestamp;
+        }
+        return;
+      }
+
+      // FIX 5: Skip deviation check outside school hours.
+      // schoolTimeIn / schoolTimeOut come from linkedDevices, written
+      // by my_children_screen.dart as "HH:MM" 24hr strings.
+      // gemini_service uses the same field names and parsing logic.
+      // Monitoring outside school hours generates noise (e.g. the child
+      // is at home and home coords are off the school route polyline).
+      final schedule = _schoolSchedules[deviceCode];
+      if (schedule != null && schedule.isConfigured) {
+        if (!schedule.isWithinSchoolHours()) {
+          debugPrint(
+              '[PathMonitor] Skipping deviation check for $deviceCode '
+              '— outside school hours '
+              '(${schedule.timeIn} – ${schedule.timeOut})');
+          _lastLogKey[deviceCode] = logKey;
+          if (logTimestamp > lastKnownTs) {
+            _lastLogTimestamp[deviceCode] = logTimestamp;
+          }
+          return;
+        }
+      }
+
+      // All guards passed — advance state and check deviation
+      _lastLogKey[deviceCode] = logKey;
+      if (logTimestamp > lastKnownTs) {
+        _lastLogTimestamp[deviceCode] = logTimestamp;
+      }
 
       final lat = (logData['latitude'] as num?)?.toDouble();
       final lng = (logData['longitude'] as num?)?.toDouble();
@@ -315,7 +410,6 @@ class PathMonitorService {
         '[PathMonitor] ⚠️ DEVIATION: $childName is '
         '${distanceMeters.toStringAsFixed(1)}m from "${route.pathName}"');
 
-    // Feature 2 — Save deviation alert to RTDB alertLogs
     _saveAlertToRTDB(
       deviceCode: deviceCode,
       childName: childName,
@@ -330,7 +424,7 @@ class PathMonitorService {
     _onDeviationDetected?.call(event);
   }
 
-  /// Feature 2 — Write alert entry to RTDB.
+  /// Write alert entry to RTDB.
   /// Path: alertLogs/{userId}/{deviceCode}/{pushId}
   Future<void> _saveAlertToRTDB({
     required String deviceCode,
@@ -356,7 +450,8 @@ class PathMonitorService {
         if (distanceMeters != null) 'distanceMeters': distanceMeters,
         if (routeName != null) 'routeName': routeName,
       });
-      debugPrint('[PathMonitor] Alert saved to RTDB: $type for $childName');
+      debugPrint(
+          '[PathMonitor] Alert saved to RTDB: $type for $childName');
     } catch (e) {
       debugPrint('[PathMonitor] Failed to save alert: $e');
     }
@@ -391,9 +486,18 @@ class PathMonitorService {
         .whereType<LatLng>()
         .toList();
   }
+
+  // ── Safe int cast (same pattern as gemini_service._toInt) ─────
+  static int _toInt(dynamic val) {
+    if (val == null) return 0;
+    if (val is int) return val;
+    if (val is double) return val.toInt();
+    if (val is String) return int.tryParse(val) ?? 0;
+    return 0;
+  }
 }
 
-// ── Internal model ────────────────────────────────────────────
+// ── Internal models ───────────────────────────────────────────
 class _RouteData {
   final String routeId;
   final String pathName;
@@ -406,4 +510,41 @@ class _RouteData {
     required this.thresholdMeters,
     required this.waypoints,
   });
+}
+
+// FIX 5: School schedule model.
+// Parses "HH:MM" strings written by my_children_screen.dart
+// (LinkedDevice.formatTimeOfDay) and read by gemini_service.dart.
+// Inlined here to avoid importing my_children_screen.
+class _SchoolSchedule {
+  final String timeIn;   // "HH:MM" 24hr, empty if not set
+  final String timeOut;  // "HH:MM" 24hr, empty if not set
+
+  const _SchoolSchedule({required this.timeIn, required this.timeOut});
+
+  /// True only when both timeIn and timeOut are non-empty valid strings.
+  bool get isConfigured => timeIn.isNotEmpty && timeOut.isNotEmpty;
+
+  /// Returns true if current device time is within school hours.
+  /// Returns true (always monitor) when schedule is not configured,
+  /// so devices without a schedule set are never silenced.
+  bool isWithinSchoolHours() {
+    if (!isConfigured) return true;
+    try {
+      final now = DateTime.now();
+      final inParts  = timeIn.split(':');
+      final outParts = timeOut.split(':');
+      final schoolStart = DateTime(
+        now.year, now.month, now.day,
+        int.parse(inParts[0]), int.parse(inParts[1]),
+      );
+      final schoolEnd = DateTime(
+        now.year, now.month, now.day,
+        int.parse(outParts[0]), int.parse(outParts[1]),
+      );
+      return now.isAfter(schoolStart) && now.isBefore(schoolEnd);
+    } catch (_) {
+      return true; // parse error → don't suppress monitoring
+    }
+  }
 }
