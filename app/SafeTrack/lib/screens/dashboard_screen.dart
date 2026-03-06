@@ -416,7 +416,9 @@ class DashboardContent extends StatelessWidget {
     }
   }
 
-  // ✅ FIX: reads SOS from linkedDevices, online status from deviceLogs
+  // Reads SOS from linkedDevices/deviceStatus/sos.
+  // Reads online status from deviceLogs using 'lastUpdate' field
+  // (written by firmware as a Firebase server timestamp).
   Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() async* {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -427,7 +429,6 @@ class DashboardContent extends StatelessWidget {
     final deviceCodes =
         childDevices.map((d) => d['deviceCode'] as String).toList();
 
-    // Stream trigger: fires when linkedDevices changes (catches SOS immediately)
     await for (final _ in rtdbInstance
         .ref('linkedDevices')
         .child(user.uid)
@@ -440,7 +441,7 @@ class DashboardContent extends StatelessWidget {
           bool isOnline = false;
           bool hasSOS = false;
 
-          // ✅ SOS lives in linkedDevices/deviceStatus/sos
+          // SOS lives in linkedDevices/{uid}/devices/{code}/deviceStatus/sos
           final deviceSnapshot = await rtdbInstance
               .ref('linkedDevices')
               .child(user.uid)
@@ -456,7 +457,9 @@ class DashboardContent extends StatelessWidget {
             hasSOS = sosVal == true || sosVal == 'true';
           }
 
-          // ✅ Online status lives in deviceLogs
+          // Online status: scan deviceLogs for the highest 'lastUpdate'
+          // (firmware writes lastUpdate as a Firebase server timestamp in
+          //  every deviceLogs push entry — online if within 5 minutes)
           final logsSnapshot = await rtdbInstance
               .ref('deviceLogs')
               .child(user.uid)
@@ -478,7 +481,7 @@ class DashboardContent extends StatelessWidget {
 
             if (highestTimestamp > 0) {
               final now = DateTime.now().millisecondsSinceEpoch;
-              isOnline = (now - highestTimestamp) < 300000;
+              isOnline = (now - highestTimestamp) < 300000; // 5 min
             }
           }
 
@@ -528,24 +531,26 @@ class _ChildCardState extends State<ChildCard> {
   bool _hasSOS = false;
   bool _isLoading = true;
   StreamSubscription<DatabaseEvent>? _logListener;
-  StreamSubscription<DatabaseEvent>? _sosListener; // ✅ NEW
+  StreamSubscription<DatabaseEvent>? _sosListener;
 
   @override
   void initState() {
     super.initState();
     _loadLatestStatus();
     _listenToDeviceLogs();
-    _listenToSOS(); // ✅ NEW
+    _listenToSOS();
   }
 
   @override
   void dispose() {
     _logListener?.cancel();
-    _sosListener?.cancel(); // ✅ NEW
+    _sosListener?.cancel();
     super.dispose();
   }
 
-  // ✅ NEW: watches linkedDevices/.../deviceStatus/sos in real time
+  // Watches linkedDevices/.../deviceStatus/sos in real time.
+  // Firmware writes sos as a bool to this path every 30s and
+  // immediately on SOS activation.
   void _listenToSOS() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -567,7 +572,64 @@ class _ChildCardState extends State<ChildCard> {
     });
   }
 
-  // Watches deviceLogs for battery, GPS, location — NOT sos
+  // ── Firmware field adapter ────────────────────────────────────
+  // Firmware writes flat fields to every deviceLogs push entry:
+  //   latitude, longitude, altitude, speed, accuracy,
+  //   locationType ("gps" | "cached"), sos, batteryLevel,
+  //   timestamp {.sv}, lastUpdate {.sv}
+  //
+  // This adapter derives the dashboard-friendly map from those
+  // raw fields. It is the single source of truth for field name
+  // translation so no other method needs to know raw field names.
+  //
+  //   gpsAvailable   → locationType == 'gps' AND coords non-zero
+  //   currentLocation→ non-null only when live GPS fix available
+  //   lastLocation   → always the best known position (lat/lng/alt)
+  //   lastUpdate     → Unix ms integer (server timestamp)
+  //   batteryLevel   → int percentage from firmware
+  Map<String, dynamic> _logEntryToLatestLog(
+      Map<dynamic, dynamic> log) {
+    final lat = (log['latitude'] as num?)?.toDouble();
+    final lng = (log['longitude'] as num?)?.toDouble();
+    final alt = (log['altitude'] as num?)?.toDouble();
+    final locationType =
+        log['locationType']?.toString() ?? 'cached';
+    final isGps = locationType == 'gps';
+    final hasCoords = lat != null &&
+        lng != null &&
+        !(lat == 0.0 && lng == 0.0);
+
+    return {
+      'lastUpdate': _toInt(log['lastUpdate']),
+      'batteryLevel':
+          (log['batteryLevel'] as num?)?.toDouble() ?? 0.0,
+      // gpsAvailable: true only when firmware reports a live fix
+      'gpsAvailable': isGps && hasCoords,
+      // currentLocation: present only on a live GPS fix
+      'currentLocation': (isGps && hasCoords)
+          ? {'latitude': lat, 'longitude': lng}
+          : null,
+      // lastLocation: always the best known position
+      'lastLocation': hasCoords
+          ? {
+              'latitude': lat,
+              'longitude': lng,
+              'altitude': alt ?? 0.0,
+            }
+          : null,
+    };
+  }
+
+  int _toInt(dynamic val) {
+    if (val == null) return 0;
+    if (val is int) return val;
+    if (val is double) return val.toInt();
+    if (val is String) return int.tryParse(val) ?? 0;
+    return 0;
+  }
+
+  // Watches deviceLogs for battery, GPS, and location fields.
+  // SOS is intentionally excluded — handled by _listenToSOS() only.
   void _listenToDeviceLogs() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -581,7 +643,8 @@ class _ChildCardState extends State<ChildCard> {
       if (!mounted) return;
 
       if (event.snapshot.exists) {
-        final logsData = event.snapshot.value as Map<dynamic, dynamic>;
+        final logsData =
+            event.snapshot.value as Map<dynamic, dynamic>;
 
         MapEntry<dynamic, dynamic>? latestEntry;
         int highestTimestamp = 0;
@@ -599,33 +662,25 @@ class _ChildCardState extends State<ChildCard> {
           final latestLogEntry =
               latestEntry.value as Map<dynamic, dynamic>;
           setState(() {
-            _latestLog = {
-              'lastUpdate': latestLogEntry['lastUpdate'] as int? ?? 0,
-              'batteryLevel':
-                  (latestLogEntry['batteryLevel'] as num?)?.toDouble() ??
-                      0.0,
-              'gpsAvailable':
-                  latestLogEntry['gpsAvailable'] as bool? ?? false,
-              'currentLocation': latestLogEntry['currentLocation'],
-              'lastLocation': latestLogEntry['lastLocation'],
-            };
-            // NOTE: _hasSOS is managed by _listenToSOS() only
+            _latestLog = _logEntryToLatestLog(latestLogEntry);
           });
         }
       } else {
-        // Fallback to cached deviceStatus (non-SOS fields only)
+        // No logs yet — fall back to cached deviceStatus snapshot
+        // (non-SOS fields only; SOS managed by _listenToSOS)
         final cachedStatus =
             widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
         if (cachedStatus != null) {
+          final ll = cachedStatus['lastLocation'];
           setState(() {
             _latestLog = {
-              'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
+              'lastUpdate': _toInt(cachedStatus['lastUpdate']),
               'batteryLevel':
                   (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
                       0.0,
               'gpsAvailable': false,
               'currentLocation': null,
-              'lastLocation': cachedStatus['lastLocation'],
+              'lastLocation': ll,
             };
           });
         }
@@ -638,7 +693,7 @@ class _ChildCardState extends State<ChildCard> {
     if (user == null) return;
 
     try {
-      // ✅ Load initial SOS from linkedDevices
+      // Load initial SOS state from linkedDevices/deviceStatus/sos
       final deviceSnapshot = await rtdbInstance
           .ref('linkedDevices')
           .child(user.uid)
@@ -654,7 +709,7 @@ class _ChildCardState extends State<ChildCard> {
         _hasSOS = sosVal == true || sosVal == 'true';
       }
 
-      // Load latest log for battery/GPS/location
+      // Load latest deviceLog entry for battery/GPS/location
       final logsSnapshot = await rtdbInstance
           .ref('deviceLogs')
           .child(user.uid)
@@ -680,33 +735,23 @@ class _ChildCardState extends State<ChildCard> {
             }
 
             if (latestEntry != null) {
-              final latestLogEntry =
-                  latestEntry.value as Map<dynamic, dynamic>;
-              _latestLog = {
-                'lastUpdate':
-                    latestLogEntry['lastUpdate'] as int? ?? 0,
-                'batteryLevel':
-                    (latestLogEntry['batteryLevel'] as num?)
-                            ?.toDouble() ??
-                        0.0,
-                'gpsAvailable':
-                    latestLogEntry['gpsAvailable'] as bool? ?? false,
-                'currentLocation': latestLogEntry['currentLocation'],
-                'lastLocation': latestLogEntry['lastLocation'],
-              };
+              _latestLog = _logEntryToLatestLog(
+                  latestEntry.value as Map<dynamic, dynamic>);
             }
           } else {
+            // Fallback: no logs yet, use cached deviceStatus
             final cachedStatus = widget.deviceData['deviceStatus']
                 as Map<dynamic, dynamic>?;
             if (cachedStatus != null) {
+              final ll = cachedStatus['lastLocation'];
               _latestLog = {
-                'lastUpdate': cachedStatus['lastUpdate'] as int? ?? 0,
+                'lastUpdate': _toInt(cachedStatus['lastUpdate']),
                 'batteryLevel':
                     (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
                         0.0,
                 'gpsAvailable': false,
                 'currentLocation': null,
-                'lastLocation': cachedStatus['lastLocation'],
+                'lastLocation': ll,
               };
             }
           }
@@ -724,7 +769,7 @@ class _ChildCardState extends State<ChildCard> {
     final lastUpdate = _latestLog!['lastUpdate'] as int? ?? 0;
     if (lastUpdate == 0) return false;
     final now = DateTime.now().millisecondsSinceEpoch;
-    return (now - lastUpdate) < 300000;
+    return (now - lastUpdate) < 300000; // 5 min threshold
   }
 
   void _showDeviceInfo(BuildContext context) {
@@ -781,13 +826,16 @@ class _ChildCardState extends State<ChildCard> {
                 fontWeight: FontWeight.bold, fontSize: 14)),
         const SizedBox(width: 8),
         Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 14))),
+            child:
+                Text(value, style: const TextStyle(fontSize: 14))),
       ],
     );
   }
 
   void _showFullScreenImage(
-      BuildContext context, String childName, ImageProvider? imageProvider) {
+      BuildContext context,
+      String childName,
+      ImageProvider? imageProvider) {
     if (imageProvider == null) return;
 
     showDialog(
@@ -796,7 +844,11 @@ class _ChildCardState extends State<ChildCard> {
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: EdgeInsets.all(
-              widget.isDesktop ? 40.0 : widget.isTablet ? 30.0 : 20.0),
+              widget.isDesktop
+                  ? 40.0
+                  : widget.isTablet
+                      ? 30.0
+                      : 20.0),
           child: Stack(
             children: [
               Container(
@@ -898,13 +950,16 @@ class _ChildCardState extends State<ChildCard> {
   Widget build(BuildContext context) {
     final childName =
         widget.deviceData['childName']?.toString() ?? 'Unknown Child';
-    final yearLevel = widget.deviceData['yearLevel']?.toString() ?? '';
-    final section = widget.deviceData['section']?.toString() ?? '';
+    final yearLevel =
+        widget.deviceData['yearLevel']?.toString() ?? '';
+    final section =
+        widget.deviceData['section']?.toString() ?? '';
     final imageBase64 =
         widget.deviceData['imageProfileBase64']?.toString();
 
-    final batteryLevel = _latestLog?['batteryLevel'] as double? ?? 0.0;
-    final sosActive = _hasSOS; // ✅ solely driven by _listenToSOS()
+    final batteryLevel =
+        _latestLog?['batteryLevel'] as double? ?? 0.0;
+    final sosActive = _hasSOS;
     final isOnline = _isDeviceOnline();
 
     String gradeSection = '';
@@ -915,7 +970,8 @@ class _ChildCardState extends State<ChildCard> {
       gradeSection = section;
     }
 
-    final ImageProvider? imageProvider = _getImageProvider(imageBase64);
+    final ImageProvider? imageProvider =
+        _getImageProvider(imageBase64);
     final Color avatarBgColor =
         Theme.of(context).primaryColor.withValues(alpha: 0.2);
 
@@ -1044,7 +1100,8 @@ class _ChildCardState extends State<ChildCard> {
             Container(
               decoration: sosActive
                   ? BoxDecoration(
-                      border: Border.all(color: Colors.red, width: 3),
+                      border:
+                          Border.all(color: Colors.red, width: 3),
                       borderRadius: BorderRadius.circular(12),
                     )
                   : null,
@@ -1056,7 +1113,7 @@ class _ChildCardState extends State<ChildCard> {
                         : 10.0),
                 child: Row(
                   children: [
-                    // Avatar
+                    // ── Avatar ──────────────────────────────────
                     GestureDetector(
                       onTap: () => _showFullScreenImage(
                           context, childName, imageProvider),
@@ -1084,8 +1141,8 @@ class _ChildCardState extends State<ChildCard> {
                             Positioned.fill(
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color:
-                                      Colors.red.withValues(alpha: 0.3),
+                                  color: Colors.red
+                                      .withValues(alpha: 0.3),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(Icons.warning,
@@ -1104,7 +1161,7 @@ class _ChildCardState extends State<ChildCard> {
                                 ? 12.0
                                 : 10.0),
 
-                    // Info column
+                    // ── Info column ─────────────────────────────
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1130,7 +1187,8 @@ class _ChildCardState extends State<ChildCard> {
                               ),
                               IconButton(
                                 icon: Icon(Icons.info_outline,
-                                    size: iconSize, color: Colors.blue),
+                                    size: iconSize,
+                                    color: Colors.blue),
                                 onPressed: () =>
                                     _showDeviceInfo(context),
                                 padding: EdgeInsets.zero,
@@ -1139,7 +1197,7 @@ class _ChildCardState extends State<ChildCard> {
                             ],
                           ),
 
-                          // Grade/section
+                          // Grade / section
                           if (gradeSection.isNotEmpty) ...[
                             const SizedBox(height: 4),
                             Row(
@@ -1196,7 +1254,8 @@ class _ChildCardState extends State<ChildCard> {
                                       : batteryLevel > 50
                                           ? Icons.battery_std
                                           : batteryLevel > 20
-                                              ? Icons.battery_charging_full
+                                              ? Icons
+                                                  .battery_charging_full
                                               : Icons.battery_alert,
                                   size: iconSize,
                                   color: batteryLevel < 20
@@ -1224,6 +1283,10 @@ class _ChildCardState extends State<ChildCard> {
                           const SizedBox(height: 4),
 
                           // GPS status
+                          // FIX: derived from gpsAvailable (which itself
+                          // comes from firmware's locationType field via
+                          // _logEntryToLatestLog). No 'status' field exists
+                          // in the firmware payload.
                           Row(
                             children: [
                               Icon(
@@ -1231,9 +1294,10 @@ class _ChildCardState extends State<ChildCard> {
                                     ? Icons.gps_fixed
                                     : Icons.gps_off,
                                 size: iconSize,
-                                color: _latestLog?['gpsAvailable'] == true
-                                    ? Colors.green
-                                    : Colors.orange,
+                                color:
+                                    _latestLog?['gpsAvailable'] == true
+                                        ? Colors.green
+                                        : Colors.orange,
                               ),
                               const SizedBox(width: 4),
                               Text(
@@ -1242,10 +1306,11 @@ class _ChildCardState extends State<ChildCard> {
                                     : 'GPS Unavailable',
                                 style: TextStyle(
                                   fontSize: fontSizeSubtitle,
-                                  color: _latestLog?['gpsAvailable'] ==
-                                          true
-                                      ? Colors.green
-                                      : Colors.orange,
+                                  color:
+                                      _latestLog?['gpsAvailable'] ==
+                                              true
+                                          ? Colors.green
+                                          : Colors.orange,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -1253,13 +1318,19 @@ class _ChildCardState extends State<ChildCard> {
                           ),
 
                           // Location coordinates
+                          // FIX: use gpsAvailable (from adapter) to decide
+                          // icon and label instead of the non-existent
+                          // currentLocation['status'] field.
                           if (_latestLog != null)
                             Builder(builder: (context) {
+                              final isGps =
+                                  _latestLog!['gpsAvailable'] == true;
                               final currentLoc =
                                   _latestLog!['currentLocation']
                                       as Map<dynamic, dynamic>?;
-                              final lastLoc = _latestLog!['lastLocation']
-                                  as Map<dynamic, dynamic>?;
+                              final lastLoc =
+                                  _latestLog!['lastLocation']
+                                      as Map<dynamic, dynamic>?;
                               final location = currentLoc ?? lastLoc;
 
                               if (location != null) {
@@ -1271,27 +1342,32 @@ class _ChildCardState extends State<ChildCard> {
                                     (location['longitude'] as num?)
                                             ?.toDouble() ??
                                         0.0;
-                                final status =
-                                    currentLoc?['status'] as String? ??
-                                        'unknown';
                                 return Row(
                                   children: [
                                     Icon(
-                                      status == 'success'
+                                      // FIX: was reading status == 'success'
+                                      // which was always 'unknown' from RTDB.
+                                      // Now correctly uses gpsAvailable.
+                                      isGps
                                           ? Icons.location_on
-                                          : Icons.location_off,
+                                          : Icons.location_searching,
                                       size: iconSize,
-                                      color: status == 'success'
+                                      color: isGps
                                           ? Colors.blue
                                           : Colors.orange,
                                     ),
                                     const SizedBox(width: 4),
                                     Expanded(
                                       child: Text(
-                                        'Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)}'
-                                        '${status == 'cached' ? ' (Cached)' : ''}',
+                                        // FIX: was appending '(Cached)' based
+                                        // on status == 'cached' which was never
+                                        // set. Now uses gpsAvailable correctly.
+                                        'Lat: ${lat.toStringAsFixed(4)}, '
+                                        'Lon: ${lon.toStringAsFixed(4)}'
+                                        '${!isGps ? ' (Cached)' : ''}',
                                         style: TextStyle(
-                                          fontSize: fontSizeSubtitle * 0.9,
+                                          fontSize:
+                                              fontSizeSubtitle * 0.9,
                                           color: Colors.grey[600],
                                         ),
                                         maxLines: 1,
@@ -1326,7 +1402,7 @@ class _ChildCardState extends State<ChildCard> {
                       ),
                     ),
 
-                    // SOS / SAFE chip
+                    // ── SOS / SAFE chip ─────────────────────────
                     Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -1344,7 +1420,9 @@ class _ChildCardState extends State<ChildCard> {
                                     : 5,
                           ),
                           decoration: BoxDecoration(
-                            color: sosActive ? Colors.red : Colors.green,
+                            color: sosActive
+                                ? Colors.red
+                                : Colors.green,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
