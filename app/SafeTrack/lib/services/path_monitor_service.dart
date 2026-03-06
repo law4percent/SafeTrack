@@ -42,6 +42,12 @@ class PathMonitorService {
 
   // ── State ─────────────────────────────────────────────────────
 
+  // FIX #9: Store the top-level devices subscription so stop() can cancel it.
+  // Previously this subscription was discarded, meaning calling start() a
+  // second time (e.g. after sign-out/sign-in) created a second listener
+  // alongside the first, causing duplicate deviation alerts and SOS saves.
+  StreamSubscription<DatabaseEvent>? _devicesSubscription;
+
   /// All active log listeners keyed by deviceCode.
   final Map<String, StreamSubscription<DatabaseEvent>> _logListeners = {};
 
@@ -54,11 +60,10 @@ class PathMonitorService {
   /// Tracks the last processed log key per device to avoid re-processing.
   final Map<String, String> _lastLogKey = {};
 
-  /// Cooldown tracker: deviceCode → last deviation notification time.
-  /// Prevents spamming the parent with repeated alerts.
+  /// Cooldown tracker: deviceCode:routeId → last deviation notification time.
   final Map<String, DateTime> _lastAlertTime = {};
 
-  /// Minimum time between alerts for the same device (5 minutes).
+  /// Minimum time between alerts for the same device+route (5 minutes).
   static const Duration _alertCooldown = Duration(minutes: 5);
 
   OnDeviationDetected? _onDeviationDetected;
@@ -88,6 +93,10 @@ class PathMonitorService {
 
   /// Stop all listeners and clear state.
   void stop() {
+    // FIX #9: Cancel the devices listener that was previously leaked.
+    _devicesSubscription?.cancel();
+    _devicesSubscription = null;
+
     for (final sub in _logListeners.values) {
       sub.cancel();
     }
@@ -104,6 +113,31 @@ class PathMonitorService {
     debugPrint('[PathMonitor] Stopped');
   }
 
+  // FIX #10: saveSosAlert was called from ChildCard._listenToSOS() but was
+  // missing from this service, meaning SOS events were never persisted to
+  // alertLogs. Implemented here using the same _saveAlertToRTDB path used
+  // by deviation alerts so all alert types share one write path.
+  Future<void> saveSosAlert({
+    required String deviceCode,
+    required String childName,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final locationNote = (latitude != null && longitude != null)
+        ? ' Last known position: ${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}.'
+        : '';
+
+    await _saveAlertToRTDB(
+      deviceCode: deviceCode,
+      childName: childName,
+      type: 'sos',
+      message: '$childName has triggered an SOS alert.$locationNote '
+          'Please check their location immediately.',
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
   // ── Internal ──────────────────────────────────────────────────
 
   /// Listen to linkedDevices and set up per-device monitors.
@@ -113,61 +147,73 @@ class PathMonitorService {
         .child(userId)
         .child('devices');
 
-    devicesRef.onValue.listen((event) async {
-      if (!event.snapshot.exists) return;
+    // FIX #9: Assign to _devicesSubscription so stop() can cancel it.
+    // Previously the return value was discarded, making the listener
+    // impossible to cancel and allowing it to outlive the service's
+    // logical lifetime.
+    _devicesSubscription = devicesRef.onValue.listen(
+      (event) async {
+        // FIX #9 (cont): Wrap in try/catch because async listener exceptions
+        // are silently swallowed by StreamSubscription. Without this, any
+        // error inside the callback (e.g. bad cast) would stop the listener
+        // without any visible indication in logs.
+        try {
+          if (!event.snapshot.exists) return;
 
-      final devicesData =
-          event.snapshot.value as Map<dynamic, dynamic>;
+          final devicesData =
+              event.snapshot.value as Map<dynamic, dynamic>;
 
-      final currentCodes =
-          devicesData.keys.map((k) => k.toString()).toSet();
+          final currentCodes =
+              devicesData.keys.map((k) => k.toString()).toSet();
 
-      // Start new listeners for newly added+enabled devices.
-      // Also cancel listeners for devices that are still present
-      // but have been disabled — this is the gap that allowed
-      // deviation notifications to fire after a parent disables a device.
-      for (final entry in devicesData.entries) {
-        final deviceCode = entry.key.toString();
-        final deviceData = entry.value as Map<dynamic, dynamic>;
-        final isEnabled =
-            deviceData['deviceEnabled']?.toString() == 'true';
-        final childName =
-            deviceData['childName']?.toString() ?? 'Unknown';
+          for (final entry in devicesData.entries) {
+            final deviceCode = entry.key.toString();
+            final deviceData = entry.value as Map<dynamic, dynamic>;
+            final isEnabled =
+                deviceData['deviceEnabled']?.toString() == 'true';
+            final childName =
+                deviceData['childName']?.toString() ?? 'Unknown';
 
-        if (!isEnabled) {
-          // Device is disabled — stop any active listener for it
-          if (_logListeners.containsKey(deviceCode)) {
-            _logListeners[deviceCode]?.cancel();
-            _logListeners.remove(deviceCode);
-            _routeListeners[deviceCode]?.cancel();
-            _routeListeners.remove(deviceCode);
-            _routeCache.remove(deviceCode);
-            _lastLogKey.remove(deviceCode);
-            debugPrint(
-                '[PathMonitor] Listener stopped — device disabled: $deviceCode');
+            if (!isEnabled) {
+              if (_logListeners.containsKey(deviceCode)) {
+                _logListeners[deviceCode]?.cancel();
+                _logListeners.remove(deviceCode);
+                _routeListeners[deviceCode]?.cancel();
+                _routeListeners.remove(deviceCode);
+                _routeCache.remove(deviceCode);
+                _lastLogKey.remove(deviceCode);
+                debugPrint(
+                    '[PathMonitor] Listener stopped — device disabled: $deviceCode');
+              }
+              continue;
+            }
+
+            if (!_logListeners.containsKey(deviceCode)) {
+              await _subscribeToRoutes(userId, deviceCode);
+              _subscribeToLogs(userId, deviceCode, childName);
+            }
           }
-          continue;
-        }
 
-        if (!_logListeners.containsKey(deviceCode)) {
-          await _subscribeToRoutes(userId, deviceCode);
-          _subscribeToLogs(userId, deviceCode, childName);
+          // Cancel listeners for removed devices.
+          final removedCodes =
+              _logListeners.keys.toSet().difference(currentCodes);
+          for (final code in removedCodes) {
+            _logListeners[code]?.cancel();
+            _logListeners.remove(code);
+            _routeListeners[code]?.cancel();
+            _routeListeners.remove(code);
+            _routeCache.remove(code);
+            _lastLogKey.remove(code);
+            debugPrint('[PathMonitor] Removed listener for $code');
+          }
+        } catch (e, stack) {
+          debugPrint('[PathMonitor] Error in devices listener: $e\n$stack');
         }
-      }
-
-      // Cancel listeners for removed devices
-      final removedCodes =
-          _logListeners.keys.toSet().difference(currentCodes);
-      for (final code in removedCodes) {
-        _logListeners[code]?.cancel();
-        _logListeners.remove(code);
-        _routeListeners[code]?.cancel();
-        _routeListeners.remove(code);
-        _routeCache.remove(code);
-        _lastLogKey.remove(code);
-        debugPrint('[PathMonitor] Removed listener for $code');
-      }
-    });
+      },
+      onError: (Object error) {
+        debugPrint('[PathMonitor] Devices stream error: $error');
+      },
+    );
   }
 
   /// Cache routes for [deviceCode] and refresh when they change.
@@ -178,27 +224,18 @@ class PathMonitorService {
         .child(userId)
         .child(deviceCode);
 
-    // FIX (minor): Use .get() for the initial load to guarantee _routeCache
-    // is populated BEFORE this method returns (and before _subscribeToLogs
-    // is called). The old approach used a 500ms hardcoded delay which was
-    // fragile — on slow connections the onValue snapshot could arrive after
-    // the delay, leaving _routeCache empty when the first log entry fires
-    // and silently skipping the deviation check.
     final initialSnap = await routesRef.get();
     _routeCache[deviceCode] = _parseRoutesSnapshot(deviceCode, initialSnap);
 
-    // Then keep the live listener for route updates (e.g. parent adds a route)
     final sub = routesRef.onValue.listen((event) {
       _routeCache[deviceCode] =
           _parseRoutesSnapshot(deviceCode, event.snapshot);
     });
 
     _routeListeners[deviceCode] = sub;
-    // No delay needed — cache is already populated by the .get() above
   }
 
   /// Parse a devicePaths snapshot into a list of active _RouteData.
-  /// Extracted to avoid duplicating the parsing logic between .get() and .onValue.
   List<_RouteData> _parseRoutesSnapshot(
       String deviceCode, DataSnapshot snapshot) {
     if (!snapshot.exists || snapshot.value == null) return [];
@@ -207,7 +244,7 @@ class PathMonitorService {
     final routes = <_RouteData>[];
 
     for (final entry in routesData.entries) {
-      final data     = entry.value as Map<dynamic, dynamic>;
+      final data = entry.value as Map<dynamic, dynamic>;
       final isActive = data['isActive'] as bool? ?? true;
       if (!isActive) continue;
 
@@ -238,11 +275,8 @@ class PathMonitorService {
         .child(userId)
         .child(deviceCode);
 
-    // limitToLast(1) — only care about the newest entry
     final sub = logsRef.limitToLast(1).onChildAdded.listen((event) {
       final logKey = event.snapshot.key ?? '';
-
-      // Skip if we already processed this key
       if (_lastLogKey[deviceCode] == logKey) return;
       _lastLogKey[deviceCode] = logKey;
 
@@ -269,11 +303,11 @@ class PathMonitorService {
     if (routes == null || routes.isEmpty) return;
 
     for (final route in routes) {
+      // HaversineService.distanceToPath returns distance in meters.
       final distance =
           HaversineService.distanceToPath(position, route.waypoints);
 
-      debugPrint(
-          '[PathMonitor] $childName ($deviceCode) → '
+      debugPrint('[PathMonitor] $childName ($deviceCode) → '
           '${route.pathName}: ${distance.toStringAsFixed(1)}m '
           '(threshold: ${route.thresholdMeters}m)');
 
@@ -298,9 +332,6 @@ class PathMonitorService {
     required _RouteData route,
   }) {
     final now = DateTime.now();
-    // FIX (minor): key includes routeId so separate routes each get their own
-    // 5-min cooldown. Old key was deviceCode only — a deviation on route A
-    // suppressed route B alerts for the same device for 5 minutes.
     final cooldownKey = '$deviceCode:${route.routeId}';
     final lastAlert = _lastAlertTime[cooldownKey];
 
@@ -323,11 +354,9 @@ class PathMonitorService {
       detectedAt: now,
     );
 
-    debugPrint(
-        '[PathMonitor] ⚠️ DEVIATION: $childName is '
+    debugPrint('[PathMonitor] ⚠️ DEVIATION: $childName is '
         '${distanceMeters.toStringAsFixed(1)}m from "${route.pathName}"');
 
-    // Feature 2 — Save deviation alert to RTDB alertLogs
     _saveAlertToRTDB(
       deviceCode: deviceCode,
       childName: childName,
@@ -342,7 +371,7 @@ class PathMonitorService {
     _onDeviationDetected?.call(event);
   }
 
-  /// Feature 2 — Write alert entry to RTDB.
+  /// Write alert entry to RTDB.
   /// Path: alertLogs/{userId}/{deviceCode}/{pushId}
   Future<void> _saveAlertToRTDB({
     required String deviceCode,
@@ -351,6 +380,8 @@ class PathMonitorService {
     required String message,
     double? distanceMeters,
     String? routeName,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -367,6 +398,8 @@ class PathMonitorService {
         'timestamp': ServerValue.timestamp,
         if (distanceMeters != null) 'distanceMeters': distanceMeters,
         if (routeName != null) 'routeName': routeName,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
       });
       debugPrint('[PathMonitor] Alert saved to RTDB: $type for $childName');
     } catch (e) {
@@ -387,8 +420,7 @@ class PathMonitorService {
               int.tryParse(b.key.toString().replaceAll('wp_', '')) ?? 0;
           return aIdx.compareTo(bIdx);
         });
-      wpMaps.addAll(
-          sorted.map((e) => e.value as Map<dynamic, dynamic>));
+      wpMaps.addAll(sorted.map((e) => e.value as Map<dynamic, dynamic>));
     } else if (raw is List) {
       wpMaps.addAll(raw.whereType<Map<dynamic, dynamic>>());
     }
@@ -397,7 +429,11 @@ class PathMonitorService {
         .map((wp) {
           final lat = (wp['latitude'] as num?)?.toDouble();
           final lng = (wp['longitude'] as num?)?.toDouble();
-          if (lat == null || lng == null) return null;
+          if (lat == null || lng == null) {
+            debugPrint(
+                '[PathMonitor] _parseWaypoints: skipping malformed waypoint $wp');
+            return null;
+          }
           return LatLng(lat, lng);
         })
         .whereType<LatLng>()

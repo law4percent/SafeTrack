@@ -177,9 +177,123 @@ class DashboardHome extends StatelessWidget {
 // =============================================================
 // DASHBOARD CONTENT
 // =============================================================
-class DashboardContent extends StatelessWidget {
+class DashboardContent extends StatefulWidget {
   final List<Map<String, dynamic>> childDevices;
   const DashboardContent({super.key, required this.childDevices});
+
+  @override
+  State<DashboardContent> createState() => _DashboardContentState();
+}
+
+class _DashboardContentState extends State<DashboardContent> {
+  // FIX #4: Per-device SOS and online status tracked in state so the
+  // monitoring banner reacts to SOS events in real time, not just when
+  // the linkedDevices list itself changes.
+  final Map<String, bool> _sosStatus = {};
+  final Map<String, bool> _onlineStatus = {};
+  final Map<String, StreamSubscription<DatabaseEvent>> _sosListeners = {};
+  final Map<String, StreamSubscription<DatabaseEvent>> _logListeners = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribeToAllDevices();
+  }
+
+  @override
+  void didUpdateWidget(DashboardContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final oldCodes =
+        oldWidget.childDevices.map((d) => d['deviceCode'] as String).toSet();
+    final newCodes =
+        widget.childDevices.map((d) => d['deviceCode'] as String).toSet();
+
+    // Cancel listeners for removed devices and clean up their state.
+    for (final code in oldCodes.difference(newCodes)) {
+      _sosListeners[code]?.cancel();
+      _sosListeners.remove(code);
+      _logListeners[code]?.cancel();
+      _logListeners.remove(code);
+      _sosStatus.remove(code);
+      _onlineStatus.remove(code);
+    }
+
+    // Start listeners for newly added devices.
+    for (final code in newCodes.difference(oldCodes)) {
+      _subscribeToDevice(code);
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final sub in _sosListeners.values) {
+      sub.cancel();
+    }
+    for (final sub in _logListeners.values) {
+      sub.cancel();
+    }
+    super.dispose();
+  }
+
+  void _subscribeToAllDevices() {
+    for (final device in widget.childDevices) {
+      _subscribeToDevice(device['deviceCode'] as String);
+    }
+  }
+
+  void _subscribeToDevice(String deviceCode) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // FIX #4: Listen directly to each device's SOS field so the banner
+    // updates the instant an SOS fires, without waiting for a linkedDevices
+    // list-level change to trigger _getAllChildrenStatus().
+    _sosListeners[deviceCode] = rtdbInstance
+        .ref('linkedDevices')
+        .child(user.uid)
+        .child('devices')
+        .child(deviceCode)
+        .child('deviceStatus')
+        .child('sos')
+        .onValue
+        .listen((event) {
+      if (!mounted) return;
+      final val = event.snapshot.value;
+      setState(() {
+        _sosStatus[deviceCode] = val == true || val == 'true';
+      });
+    });
+
+    // FIX #4: Listen to the latest log entry only to determine online status.
+    // limitToLast(1) keeps bandwidth minimal.
+    _logListeners[deviceCode] = rtdbInstance
+        .ref('deviceLogs')
+        .child(user.uid)
+        .child(deviceCode)
+        .limitToLast(1)
+        .onValue
+        .listen((event) {
+      if (!mounted) return;
+      bool isOnline = false;
+      if (event.snapshot.exists) {
+        final logsData = event.snapshot.value as Map<dynamic, dynamic>;
+        int highestTimestamp = 0;
+        for (final entry in logsData.entries) {
+          final logData = entry.value as Map<dynamic, dynamic>;
+          final ts = logData['lastUpdate'] as int? ?? 0;
+          if (ts > highestTimestamp) highestTimestamp = ts;
+        }
+        if (highestTimestamp > 0) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          isOnline = (now - highestTimestamp) < 300000;
+        }
+      }
+      setState(() {
+        _onlineStatus[deviceCode] = isOnline;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -204,87 +318,70 @@ class DashboardContent extends StatelessWidget {
     );
   }
 
+  // FIX #4: Banner now reads directly from _sosStatus / _onlineStatus maps
+  // which are driven by real-time per-device listeners. No more reliance on
+  // the linkedDevices list-change as an indirect SOS trigger.
   Widget _buildMonitoringStatus(bool isTablet, bool isDesktop) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _getAllChildrenStatus(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Card(
-            elevation: 2,
-            child: ListTile(
-              leading: const CircularProgressIndicator(),
-              title: Text(
-                'Monitoring your children\'s safety at school',
-                style: TextStyle(
-                    fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0),
-              ),
-              subtitle: const Text('Checking status...'),
-            ),
-          );
-        }
+    final bool hasEmergency = _sosStatus.values.any((v) => v == true);
+    final bool allOnline = widget.childDevices.isNotEmpty &&
+        widget.childDevices.every(
+            (d) => _onlineStatus[d['deviceCode'] as String] == true);
+    final bool someOffline = widget.childDevices.isNotEmpty &&
+        widget.childDevices.any(
+            (d) => _onlineStatus[d['deviceCode'] as String] != true);
+    final bool noDevices = widget.childDevices.isEmpty;
 
-        final childrenStatus = snapshot.data ?? [];
-        final bool hasEmergency =
-            childrenStatus.any((child) => child['sosActive'] == true);
-        final bool allChildrenOnline = childrenStatus.isNotEmpty &&
-            childrenStatus.every((child) => child['isOnline'] == true);
-        final bool someChildrenOffline = childrenStatus.isNotEmpty &&
-            childrenStatus.any((child) => child['isOnline'] == false);
-        final bool noDevices = childrenStatus.isEmpty;
+    String statusText;
+    Color statusColor;
+    IconData statusIcon;
 
-        String statusText;
-        Color statusColor;
-        IconData statusIcon;
+    if (hasEmergency) {
+      statusText = 'EMERGENCY DETECTED!';
+      statusColor = Colors.red;
+      statusIcon = Icons.warning;
+    } else if (noDevices) {
+      statusText = 'No Devices Linked Yet';
+      statusColor = Colors.orange;
+      statusIcon = Icons.device_unknown;
+    } else if (allOnline) {
+      statusText = 'All Children Safe & Online';
+      statusColor = Colors.green;
+      statusIcon = Icons.security;
+    } else if (someOffline) {
+      statusText = 'Some Children Offline';
+      statusColor = Colors.orange;
+      statusIcon = Icons.signal_wifi_off;
+    } else {
+      statusText = 'Monitoring Status';
+      statusColor = Colors.blue;
+      statusIcon = Icons.monitor_heart;
+    }
 
-        if (hasEmergency) {
-          statusText = 'EMERGENCY DETECTED!';
-          statusColor = Colors.red;
-          statusIcon = Icons.warning;
-        } else if (noDevices) {
-          statusText = 'No Devices Linked Yet';
-          statusColor = Colors.orange;
-          statusIcon = Icons.device_unknown;
-        } else if (allChildrenOnline) {
-          statusText = 'All Children Safe & Online';
-          statusColor = Colors.green;
-          statusIcon = Icons.security;
-        } else if (someChildrenOffline) {
-          statusText = 'Some Children Offline';
-          statusColor = Colors.orange;
-          statusIcon = Icons.signal_wifi_off;
-        } else {
-          statusText = 'Monitoring Status';
-          statusColor = Colors.blue;
-          statusIcon = Icons.monitor_heart;
-        }
-
-        return Card(
-          elevation: hasEmergency ? 8 : 2,
-          color: hasEmergency ? Colors.red.shade50 : null,
-          child: ListTile(
-            leading: Icon(
-              statusIcon,
-              color: hasEmergency ? Colors.red : statusColor,
-              size: isDesktop ? 32.0 : isTablet ? 28.0 : 24.0,
-            ),
-            title: Text(
-              'Monitoring your children\'s safety at school',
-              style: TextStyle(
-                fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            subtitle: Text(
-              statusText,
-              style: TextStyle(
-                color: hasEmergency ? Colors.red : statusColor,
-                fontWeight: FontWeight.bold,
-                fontSize: isDesktop ? 16.0 : isTablet ? 14.0 : 12.0,
-              ),
-            ),
+    return Card(
+      elevation: hasEmergency ? 8 : 2,
+      color: hasEmergency ? Colors.red.shade50 : null,
+      child: ListTile(
+        leading: Icon(
+          statusIcon,
+          color: hasEmergency ? Colors.red : statusColor,
+          size: isDesktop ? 32.0 : isTablet ? 28.0 : 24.0,
+        ),
+        title: Text(
+          'Monitoring your children\'s safety at school',
+          style: TextStyle(
+            fontSize: isDesktop ? 18.0 : isTablet ? 16.0 : 14.0,
+            fontWeight: FontWeight.w500,
           ),
-        );
-      },
+        ),
+        subtitle: Text(
+          statusText,
+          style: TextStyle(
+            color: hasEmergency ? Colors.red : statusColor,
+            fontWeight: FontWeight.bold,
+            fontSize: isDesktop ? 16.0 : isTablet ? 14.0 : 12.0,
+          ),
+        ),
+      ),
     );
   }
 
@@ -301,7 +398,7 @@ class DashboardContent extends StatelessWidget {
           ),
         ),
         SizedBox(height: isDesktop ? 16.0 : isTablet ? 12.0 : 8.0),
-        if (childDevices.isEmpty)
+        if (widget.childDevices.isEmpty)
           _buildEmptyState(isTablet, isDesktop)
         else
           _buildChildrenList(context, isTablet, isDesktop),
@@ -357,10 +454,10 @@ class DashboardContent extends StatelessWidget {
           mainAxisSpacing: 16.0,
           childAspectRatio: 2.5,
         ),
-        itemCount: childDevices.length,
+        itemCount: widget.childDevices.length,
         itemBuilder: (context, index) => ChildCard(
-          deviceCode: childDevices[index]['deviceCode'],
-          deviceData: childDevices[index]['data'],
+          deviceCode: widget.childDevices[index]['deviceCode'],
+          deviceData: widget.childDevices[index]['data'],
           isTablet: isTablet,
           isDesktop: isDesktop,
         ),
@@ -378,17 +475,17 @@ class DashboardContent extends StatelessWidget {
             mainAxisSpacing: 12.0,
             childAspectRatio: 3.0,
           ),
-          itemCount: childDevices.length,
+          itemCount: widget.childDevices.length,
           itemBuilder: (context, index) => ChildCard(
-            deviceCode: childDevices[index]['deviceCode'],
-            deviceData: childDevices[index]['data'],
+            deviceCode: widget.childDevices[index]['deviceCode'],
+            deviceData: widget.childDevices[index]['data'],
             isTablet: isTablet,
             isDesktop: isDesktop,
           ),
         );
       } else {
         return Column(
-          children: childDevices
+          children: widget.childDevices
               .map((device) => Padding(
                     padding: const EdgeInsets.only(bottom: 12.0),
                     child: ChildCard(
@@ -403,7 +500,7 @@ class DashboardContent extends StatelessWidget {
       }
     } else {
       return Column(
-        children: childDevices
+        children: widget.childDevices
             .map((device) => Padding(
                   padding: const EdgeInsets.only(bottom: 10.0),
                   child: ChildCard(
@@ -415,101 +512,6 @@ class DashboardContent extends StatelessWidget {
                 ))
             .toList(),
       );
-    }
-  }
-
-  // ✅ FIX: reads SOS from linkedDevices, online status from deviceLogs
-  Stream<List<Map<String, dynamic>>> _getAllChildrenStatus() async* {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      yield [];
-      return;
-    }
-
-    final deviceCodes =
-        childDevices.map((d) => d['deviceCode'] as String).toList();
-
-    // Stream trigger: fires when linkedDevices changes (catches SOS immediately)
-    await for (final _ in rtdbInstance
-        .ref('linkedDevices')
-        .child(user.uid)
-        .child('devices')
-        .onValue) {
-      final List<Map<String, dynamic>> statuses = [];
-
-      // FIX (minor): parallel fetch via Future.wait — was sequential awaits
-      // (2 Firebase reads per device, one after the other). With 5+ devices
-      // this caused noticeable banner lag.
-      // FIX (minor): limitToLast(1) for log read — only need the newest entry
-      // to determine online status. Was downloading full log history.
-      final deviceStatuses = await Future.wait(
-        deviceCodes.map((deviceCode) async {
-          try {
-            bool isOnline = false;
-            bool hasSOS   = false;
-
-            // Fetch deviceStatus (SOS) and latest log (online check) in parallel
-            final results = await Future.wait([
-              rtdbInstance
-                  .ref('linkedDevices')
-                  .child(user.uid)
-                  .child('devices')
-                  .child(deviceCode)
-                  .child('deviceStatus')
-                  .get(),
-              rtdbInstance
-                  .ref('deviceLogs')
-                  .child(user.uid)
-                  .child(deviceCode)
-                  .limitToLast(1) // FIX: was .get() on full history
-                  .get(),
-            ]);
-
-            final deviceSnap = results[0];
-            final logsSnap   = results[1];
-
-            if (deviceSnap.exists) {
-              final deviceStatus =
-                  deviceSnap.value as Map<dynamic, dynamic>;
-              final sosVal = deviceStatus['sos'];
-              hasSOS = sosVal == true || sosVal == 'true';
-            }
-
-            if (logsSnap.exists) {
-              final logsData = logsSnap.value as Map<dynamic, dynamic>;
-              int highestTimestamp = 0;
-              for (var entry in logsData.entries) {
-                final logData  = entry.value as Map<dynamic, dynamic>;
-                final timestamp = logData['lastUpdate'] as int? ?? 0;
-                if (timestamp > highestTimestamp) {
-                  highestTimestamp = timestamp;
-                }
-              }
-              if (highestTimestamp > 0) {
-                final now = DateTime.now().millisecondsSinceEpoch;
-                isOnline = (now - highestTimestamp) < 300000;
-              }
-            }
-
-            return {
-              'deviceCode': deviceCode,
-              'sosActive': hasSOS,
-              'isOnline': isOnline,
-            };
-          } catch (e) {
-            debugPrint('Error getting status for $deviceCode: $e');
-            return {
-              'deviceCode': deviceCode,
-              'sosActive': false,
-              'isOnline': false,
-            };
-          }
-        }),
-      );
-
-      statuses.addAll(deviceStatuses);
-
-      yield statuses;
     }
   }
 }
@@ -539,8 +541,6 @@ class _ChildCardState extends State<ChildCard> {
   Map<String, dynamic>? _latestLog;
   bool _hasSOS = false;
   bool _isLoading = true;
-  // Tracks previous SOS state so we only fire notification on false→true
-  // transition, not on repeated true→true updates from the 30s firmware cycle.
   bool _wasSOS = false;
   StreamSubscription<DatabaseEvent>? _logListener;
   StreamSubscription<DatabaseEvent>? _sosListener;
@@ -548,19 +548,18 @@ class _ChildCardState extends State<ChildCard> {
   @override
   void initState() {
     super.initState();
-    _loadLatestStatus();
+    _loadInitialSosState();
     _listenToDeviceLogs();
-    _listenToSOS(); // ✅ NEW
+    _listenToSOS();
   }
 
   @override
   void dispose() {
     _logListener?.cancel();
-    _sosListener?.cancel(); // ✅ NEW
+    _sosListener?.cancel();
     super.dispose();
   }
 
-  // ✅ NEW: watches linkedDevices/.../deviceStatus/sos in real time
   void _listenToSOS() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -583,25 +582,20 @@ class _ChildCardState extends State<ChildCard> {
         final childName =
             widget.deviceData['childName']?.toString() ?? 'Unknown';
 
-        // FIX (minor): _latestLog may be null on first mount if
-        // _listenToDeviceLogs hasn't delivered its first event yet
-        // (race condition). Fall back to deviceStatus.lastLocation
-        // which is always available from the initial data load.
         double? lat;
         double? lng;
 
         final lastLoc =
             _latestLog?['lastLocation'] as Map<dynamic, dynamic>?;
         if (lastLoc != null) {
-          lat = (lastLoc['latitude']  as num?)?.toDouble();
+          lat = (lastLoc['latitude'] as num?)?.toDouble();
           lng = (lastLoc['longitude'] as num?)?.toDouble();
         } else {
-          // Fallback: read coords from deviceStatus.lastLocation
-          final cachedStatus = widget.deviceData['deviceStatus']
-              as Map<dynamic, dynamic>?;
+          final cachedStatus =
+              widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
           final cachedLoc =
               cachedStatus?['lastLocation'] as Map<dynamic, dynamic>?;
-          lat = (cachedLoc?['latitude']  as num?)?.toDouble();
+          lat = (cachedLoc?['latitude'] as num?)?.toDouble();
           lng = (cachedLoc?['longitude'] as num?)?.toDouble();
         }
 
@@ -619,50 +613,34 @@ class _ChildCardState extends State<ChildCard> {
       }
 
       setState(() {
-        _hasSOS  = isSOS;
-        _wasSOS  = isSOS;
+        _hasSOS = isSOS;
+        _wasSOS = isSOS;
       });
     });
   }
 
   // ── Firmware field adapter ────────────────────────────────────
-  // The firmware writes flat fields to deviceLogs:
-  //   latitude, longitude, altitude, locationType, lastUpdate, batteryLevel
-  // The dashboard internally uses:
-  //   gpsAvailable (bool)  → derived from locationType == 'gps'
-  //   currentLocation (map) → built from flat lat/lng, null when cached
-  //   lastLocation (map)   → always built from flat lat/lng (best known)
-  // This single helper is called from all three _latestLog build sites
-  // so the derivation logic is never duplicated.
-  Map<String, dynamic> _logEntryToLatestLog(
-      Map<dynamic, dynamic> log) {
+  Map<String, dynamic> _logEntryToLatestLog(Map<dynamic, dynamic> log) {
     final lat = (log['latitude'] as num?)?.toDouble();
     final lng = (log['longitude'] as num?)?.toDouble();
     final alt = (log['altitude'] as num?)?.toDouble();
-    final locationType =
-        log['locationType']?.toString() ?? 'cached';
+    final locationType = log['locationType']?.toString() ?? 'cached';
     final isGps = locationType == 'gps';
-    final hasCoords = lat != null && lng != null &&
-        !(lat == 0.0 && lng == 0.0);
+    final hasCoords =
+        lat != null && lng != null && !(lat == 0.0 && lng == 0.0);
 
     return {
       'lastUpdate': _toInt(log['lastUpdate']),
-      'batteryLevel':
-          (log['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-      // Derived: firmware has no gpsAvailable field; use locationType
+      'batteryLevel': (log['batteryLevel'] as num?)?.toDouble() ?? 0.0,
       'gpsAvailable': isGps && hasCoords,
-      // currentLocation: only set when we have a live GPS fix
-      'currentLocation': (isGps && hasCoords)
-          ? {'latitude': lat, 'longitude': lng}
-          : null,
-      // lastLocation: always the best known position
+      'currentLocation':
+          (isGps && hasCoords) ? {'latitude': lat, 'longitude': lng} : null,
       'lastLocation': hasCoords
           ? {'latitude': lat, 'longitude': lng, 'altitude': alt ?? 0.0}
           : null,
     };
   }
 
-  // Helper used by the helper above — reuse the one from GeminiService style
   int _toInt(dynamic val) {
     if (val == null) return 0;
     if (val is int) return val;
@@ -671,7 +649,10 @@ class _ChildCardState extends State<ChildCard> {
     return 0;
   }
 
-  // Watches deviceLogs for battery, GPS, location — NOT sos
+  // FIX #2: Replaced the full-history .onValue listener with
+  // limitToLast(1).onChildAdded. Firebase now sends only the single newest
+  // log entry instead of the entire collection on every update.
+  // This is O(1) bandwidth per update regardless of how many logs accumulate.
   void _listenToDeviceLogs() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -680,61 +661,29 @@ class _ChildCardState extends State<ChildCard> {
         .ref('deviceLogs')
         .child(user.uid)
         .child(widget.deviceCode)
-        .onValue
+        .limitToLast(1)
+        .onChildAdded // fires once per new entry, not on every collection change
         .listen((event) {
       if (!mounted) return;
-
-      if (event.snapshot.exists) {
-        final logsData = event.snapshot.value as Map<dynamic, dynamic>;
-
-        MapEntry<dynamic, dynamic>? latestEntry;
-        int highestTimestamp = 0;
-
-        for (var entry in logsData.entries) {
-          final logData = entry.value as Map<dynamic, dynamic>;
-          final timestamp = logData['lastUpdate'] as int? ?? 0;
-          if (timestamp > highestTimestamp) {
-            highestTimestamp = timestamp;
-            latestEntry = entry;
-          }
-        }
-
-        if (latestEntry != null) {
-          final latestLogEntry =
-              latestEntry.value as Map<dynamic, dynamic>;
-          setState(() {
-            _latestLog = _logEntryToLatestLog(latestLogEntry);
-            // NOTE: _hasSOS is managed by _listenToSOS() only
-          });
-        }
-      } else {
-        // Fallback to cached deviceStatus (non-SOS fields only)
-        final cachedStatus =
-            widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
-        if (cachedStatus != null) {
-          final ll = cachedStatus['lastLocation'];
-          setState(() {
-            _latestLog = {
-              'lastUpdate': _toInt(cachedStatus['lastUpdate']),
-              'batteryLevel':
-                  (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
-                      0.0,
-              'gpsAvailable': false,
-              'currentLocation': null,
-              'lastLocation': ll,
-            };
-          });
-        }
-      }
+      final logData = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (logData == null) return;
+      setState(() {
+        _latestLog = _logEntryToLatestLog(logData);
+        _isLoading = false;
+      });
     });
   }
 
-  Future<void> _loadLatestStatus() async {
+  // Load the initial SOS state only (not log data — the stream handles that).
+  // This removes the duplicated log-parsing that raced with _listenToDeviceLogs.
+  Future<void> _loadInitialSosState() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
     try {
-      // ✅ Load initial SOS from linkedDevices
       final deviceSnapshot = await rtdbInstance
           .ref('linkedDevices')
           .child(user.uid)
@@ -743,64 +692,28 @@ class _ChildCardState extends State<ChildCard> {
           .child('deviceStatus')
           .get();
 
+      if (!mounted) return;
+
       if (deviceSnapshot.exists) {
-        final deviceStatus =
-            deviceSnapshot.value as Map<dynamic, dynamic>;
+        final deviceStatus = deviceSnapshot.value as Map<dynamic, dynamic>;
         final sosVal = deviceStatus['sos'];
-        _hasSOS = sosVal == true || sosVal == 'true';
-      }
-
-      // Load latest log for battery/GPS/location
-      final logsSnapshot = await rtdbInstance
-          .ref('deviceLogs')
-          .child(user.uid)
-          .child(widget.deviceCode)
-          .get();
-
-      if (mounted) {
+        // _isLoading stays true until _listenToDeviceLogs delivers its first
+        // entry. We only set the initial SOS state here.
         setState(() {
-          if (logsSnapshot.exists) {
-            final logsData =
-                logsSnapshot.value as Map<dynamic, dynamic>;
-
-            MapEntry<dynamic, dynamic>? latestEntry;
-            int highestTimestamp = 0;
-
-            for (var entry in logsData.entries) {
-              final logData = entry.value as Map<dynamic, dynamic>;
-              final timestamp = logData['lastUpdate'] as int? ?? 0;
-              if (timestamp > highestTimestamp) {
-                highestTimestamp = timestamp;
-                latestEntry = entry;
-              }
-            }
-
-            if (latestEntry != null) {
-              final latestLogEntry =
-                  latestEntry.value as Map<dynamic, dynamic>;
-              _latestLog = _logEntryToLatestLog(latestLogEntry);
-            }
-          } else {
-            final cachedStatus = widget.deviceData['deviceStatus']
-                as Map<dynamic, dynamic>?;
-            if (cachedStatus != null) {
-              final ll = cachedStatus['lastLocation'];
-              _latestLog = {
-                'lastUpdate': _toInt(cachedStatus['lastUpdate']),
-                'batteryLevel':
-                    (cachedStatus['batteryLevel'] as num?)?.toDouble() ??
-                        0.0,
-                'gpsAvailable': false,
-                'currentLocation': null,
-                'lastLocation': ll,
-              };
-            }
-          }
-          _isLoading = false;
+          _hasSOS = sosVal == true || sosVal == 'true';
+          _wasSOS = _hasSOS;
         });
       }
+
+      // If the log stream hasn't fired within 5 seconds (e.g. no logs exist),
+      // stop showing the loading spinner so the card renders usable UI.
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted && _isLoading) {
+          setState(() => _isLoading = false);
+        }
+      });
     } catch (e) {
-      debugPrint('Error loading status for ${widget.deviceCode}: $e');
+      debugPrint('Error loading initial SOS for ${widget.deviceCode}: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -863,11 +776,10 @@ class _ChildCardState extends State<ChildCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 14)),
+            style:
+                const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
         const SizedBox(width: 8),
-        Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 14))),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
       ],
     );
   }
@@ -990,7 +902,7 @@ class _ChildCardState extends State<ChildCard> {
         widget.deviceData['imageProfileBase64']?.toString();
 
     final batteryLevel = _latestLog?['batteryLevel'] as double? ?? 0.0;
-    final sosActive = _hasSOS; // ✅ solely driven by _listenToSOS()
+    final sosActive = _hasSOS;
     final isOnline = _isDeviceOnline();
 
     String gradeSection = '';
@@ -1144,8 +1056,10 @@ class _ChildCardState extends State<ChildCard> {
                   children: [
                     // Avatar
                     GestureDetector(
-                      onTap: () => _showFullScreenImage(
-                          context, childName, imageProvider),
+                      onTap: imageProvider != null
+                          ? () => _showFullScreenImage(
+                              context, childName, imageProvider)
+                          : null,
                       child: Stack(
                         children: [
                           CircleAvatar(
@@ -1156,9 +1070,7 @@ class _ChildCardState extends State<ChildCard> {
                             backgroundImage: imageProvider,
                             child: imageProvider == null
                                 ? Icon(
-                                    sosActive
-                                        ? Icons.warning
-                                        : Icons.person,
+                                    sosActive ? Icons.warning : Icons.person,
                                     size: avatarSize * 0.6,
                                     color: sosActive
                                         ? Colors.red
@@ -1217,8 +1129,7 @@ class _ChildCardState extends State<ChildCard> {
                               IconButton(
                                 icon: Icon(Icons.info_outline,
                                     size: iconSize, color: Colors.blue),
-                                onPressed: () =>
-                                    _showDeviceInfo(context),
+                                onPressed: () => _showDeviceInfo(context),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
                               ),
@@ -1231,8 +1142,7 @@ class _ChildCardState extends State<ChildCard> {
                             Row(
                               children: [
                                 Icon(Icons.school,
-                                    size: iconSize,
-                                    color: Colors.grey[600]),
+                                    size: iconSize, color: Colors.grey[600]),
                                 const SizedBox(width: 4),
                                 Text(
                                   gradeSection,
@@ -1252,17 +1162,15 @@ class _ChildCardState extends State<ChildCard> {
                           Row(
                             children: [
                               Icon(Icons.circle,
-                                  color: isOnline
-                                      ? Colors.green
-                                      : Colors.grey,
+                                  color:
+                                      isOnline ? Colors.green : Colors.grey,
                                   size: iconSize * 0.7),
                               const SizedBox(width: 4),
                               Text(
                                 isOnline ? 'Active' : 'Offline',
                                 style: TextStyle(
-                                  color: isOnline
-                                      ? Colors.green
-                                      : Colors.grey,
+                                  color:
+                                      isOnline ? Colors.green : Colors.grey,
                                   fontSize: fontSizeSubtitle,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -1328,8 +1236,7 @@ class _ChildCardState extends State<ChildCard> {
                                     : 'GPS Unavailable',
                                 style: TextStyle(
                                   fontSize: fontSizeSubtitle,
-                                  color: _latestLog?['gpsAvailable'] ==
-                                          true
+                                  color: _latestLog?['gpsAvailable'] == true
                                       ? Colors.green
                                       : Colors.orange,
                                   fontWeight: FontWeight.w500,
@@ -1341,17 +1248,15 @@ class _ChildCardState extends State<ChildCard> {
                           // Location coordinates
                           if (_latestLog != null)
                             Builder(builder: (context) {
-                              final currentLoc =
-                                  _latestLog!['currentLocation']
-                                      as Map<dynamic, dynamic>?;
+                              final currentLoc = _latestLog!['currentLocation']
+                                  as Map<dynamic, dynamic>?;
                               final lastLoc = _latestLog!['lastLocation']
                                   as Map<dynamic, dynamic>?;
                               final location = currentLoc ?? lastLoc;
 
                               if (location != null) {
                                 final lat =
-                                    (location['latitude'] as num?)
-                                            ?.toDouble() ??
+                                    (location['latitude'] as num?)?.toDouble() ??
                                         0.0;
                                 final lon =
                                     (location['longitude'] as num?)
