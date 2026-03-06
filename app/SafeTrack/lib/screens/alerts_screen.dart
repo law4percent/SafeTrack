@@ -241,6 +241,8 @@ class _AlertScreenState extends State<AlertScreen> {
     );
     if (confirmed == true) {
       await FirebaseDatabase.instance.ref('alertLogs').child(uid).remove();
+      // FIX (minor): context may be stale after async gap — guard before use
+      if (!context.mounted) return;
     }
   }
 }
@@ -365,6 +367,8 @@ class _AlertCard extends StatelessWidget {
           .child(alert.deviceCode)
           .child(alert.pushId)
           .remove();
+      // FIX (minor): context may be stale after async gap — guard before use
+      if (!context.mounted) return;
     }
   }
 
