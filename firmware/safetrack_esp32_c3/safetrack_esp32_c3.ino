@@ -32,8 +32,8 @@
 #include <Wire.h>
 
 // ==================== PINS (ESP32-C3 Super Mini) ====================
-#define PIN_RX      20      // SIM7600 TX → ESP32-C3 RX
-#define PIN_TX      21      // SIM7600 RX → ESP32-C3 TX
+#define PIN_RX       4      // SIM7600 TX → ESP32-C3 RX
+#define PIN_TX       5      // SIM7600 RX → ESP32-C3 TX
 #define RED_PIN      8      // Red LED (onboard or external)
 #define GRN_PIN      3      // Green LED
 #define SOS_BTN      2      // SOS push button (GPIO2, pulled up)
@@ -96,17 +96,14 @@ bool          sosHolding        = false;
 const unsigned long SOS_HOLD_MS     = 3000;   // hold 3s to activate
 const unsigned long SOS_DURATION_MS = 60000;  // auto-cancel after 60s
 
-// ── SOS Retry Queue (Fix 1) ───────────────────────────────────
-// Stores one pending SOS entry in RAM when GPRS is unavailable.
-// Retried every update cycle until delivered or TTL expires.
-// Only one slot needed — SOS is a singular emergency event.
+// ── SOS Retry Queue ───────────────────────────────────────────────────────
 struct SosPending {
-  bool     valid    = false;   // true = unsent SOS waiting
+  bool     valid    = false;
   float    lat      = 0.0;
   float    lon      = 0.0;
   float    alt      = 0.0;
   float    battery  = 0.0;
-  unsigned long queuedAt = 0;  // millis() when queued
+  unsigned long queuedAt = 0;
 };
 SosPending sosPending;
 const unsigned long SOS_RETRY_TTL_MS = 300000; // give up after 5 min
@@ -122,9 +119,9 @@ bool  readGPS();
 float readBattery();
 void  initMAX17043();
 void  sendDeviceStatus();
-bool  sendLocationLog();           // returns true on success
+bool  sendLocationLog();
 void  handleSOS();
-void  trySendPendingSOS();         // Fix 1: retry queued SOS
+void  trySendPendingSOS();
 void  blinkRed(int times = 1);
 void  blinkGreen(int times = 3);
 void  flashSOS();
@@ -135,7 +132,7 @@ bool   httpPost(const String& url, const String& payload);
 void setup() {
   SerialMon.begin(115200);
   delay(300);
-  SerialMon.println("\n\n=== SafeTrack v4.0 — ESP32-C3 ===");
+  SerialMon.println("\n\n=== SafeTrack v4.4 — ESP32-C3 ===");
   SerialMon.println("Device: " + DEVICE_CODE);
 
   // LEDs
@@ -217,14 +214,13 @@ void loop() {
     SerialMon.printf("  GPS     : %s\n", gpsValid ? "VALID" : "NO FIX");
     SerialMon.printf("  SOS     : %s\n", sosActive ? "🚨 ACTIVE" : "off");
 
-    // Fix 1: attempt to resend any queued SOS before regular update
+    // Attempt to resend any queued SOS before regular update
     trySendPendingSOS();
 
     // Write to both Firebase paths
-    bool logOk    = sendLocationLog();   // → deviceLogs (push entry)
-    sendDeviceStatus();                  // → deviceStatus (snapshot)
+    bool logOk = sendLocationLog();
+    sendDeviceStatus();
 
-    // Fix 3: only blink green if at least deviceLogs sent successfully
     if (logOk) {
       blinkGreen(2);
     }
@@ -248,28 +244,22 @@ void handleSOS() {
   int btnState = digitalRead(SOS_BTN);
 
   if (btnState == LOW) {
-    // Button is held down
     if (!sosHolding) {
-      sosHolding   = true;
+      sosHolding    = true;
       sosPressStart = now;
       SerialMon.println("🔴 SOS button held — keep holding 3s...");
     }
-    // Activate once hold threshold reached (and not already active)
     if (!sosActive && (now - sosPressStart >= SOS_HOLD_MS)) {
-      sosActive       = true;
-      sosActivatedAt  = now;
+      sosActive      = true;
+      sosActivatedAt = now;
       SerialMon.println("🚨🚨🚨 SOS ACTIVATED 🚨🚨🚨");
       flashSOS();
 
-      // Fix 2: only attempt immediate push if GPRS is up.
-      // If GPRS is down, queue in RAM — trySendPendingSOS() will
-      // deliver it the moment connectivity recovers.
       if (modem.isGprsConnected()) {
         SerialMon.println("  📡 GPRS up — sending SOS immediately...");
         bool sent = sendLocationLog();
         sendDeviceStatus();
         if (!sent) {
-          // GPRS was up but HTTP failed — queue for retry
           SerialMon.println("  ⚠️  SOS send failed — queuing for retry");
           sosPending.valid    = true;
           sosPending.lat      = gpsValid ? gpsLat : lastLat;
@@ -281,7 +271,6 @@ void handleSOS() {
           SerialMon.println("  ✅ SOS sent to Firebase!");
         }
       } else {
-        // No GPRS — queue immediately, no blocking HTTP attempt
         SerialMon.println("  ⚠️  No GPRS — SOS queued for retry when signal returns");
         sosPending.valid    = true;
         sosPending.lat      = gpsValid ? gpsLat : lastLat;
@@ -292,12 +281,10 @@ void handleSOS() {
       }
     }
   } else {
-    // Button released
     if (sosHolding) {
       unsigned long held = now - sosPressStart;
       if (!sosActive) {
-        SerialMon.printf("  Released after %.1fs (need 3s)\n",
-                         held / 1000.0);
+        SerialMon.printf("  Released after %.1fs (need 3s)\n", held / 1000.0);
       }
       sosHolding = false;
     }
@@ -315,17 +302,16 @@ bool readGPS() {
   float lat, lon, alt, spd;
   int   hdg;
 
-  // TinyGSM wraps AT+CGPSINFO for SIM7600
   if (modem.getGPS(&lat, &lon, &alt, &spd, &hdg)) {
     if (lat != 0.0 && lon != 0.0) {
-      gpsLat   = lat;
-      gpsLon   = lon;
-      gpsAlt   = alt;
-      gpsSpeed = spd;
+      gpsLat     = lat;
+      gpsLon     = lon;
+      gpsAlt     = alt;
+      gpsSpeed   = spd;
       gpsHeading = hdg;
-      lastLat  = lat;
-      lastLon  = lon;
-      lastAlt  = alt;
+      lastLat    = lat;
+      lastLon    = lon;
+      lastAlt    = alt;
       SerialMon.printf("  ✅ Lat %.6f  Lon %.6f  Alt %.1fm  Spd %.1fkph\n",
                        lat, lon, alt, spd);
       return true;
@@ -337,7 +323,6 @@ bool readGPS() {
 
 // ==================== BATTERY ====================
 void initMAX17043() {
-  // Quick-start command
   Wire.beginTransmission(MAX17043_ADDR);
   Wire.write(0xFE);
   Wire.write(0x54);
@@ -362,50 +347,25 @@ float readBattery() {
 }
 
 // ==================== FIREBASE: deviceLogs (POST = push) ====================
-//
-// POST to .../deviceLogs/{userUid}/{deviceCode}.json
-// Firebase generates a unique push ID → creates history entries
-// Flutter app reads these as individual children ordered by timestamp
-//
-// Payload matches what Flutter's _subscribeToLocation() expects:
-//   latitude, longitude, altitude, speed, accuracy,
-//   locationType, timestamp (Unix ms)
-//
 bool sendLocationLog() {
-  // Fix 4: GPRS guard — skip HTTP entirely if not connected
   if (!modem.isGprsConnected()) {
     SerialMon.println("  ⚠️  sendLocationLog skipped — GPRS not connected");
     return false;
   }
-  // Use last valid fix if GPS unavailable this cycle
   float lat = gpsValid ? gpsLat : lastLat;
   float lon = gpsValid ? gpsLon : lastLon;
   float alt = gpsValid ? gpsAlt : lastAlt;
   float spd = gpsValid ? gpsSpeed : 0.0;
 
-  // Build Unix timestamp from GPS time or millis fallback
-  // SIM7600 AT+CCLK? returns network time — use modem.getGSMDateTime
-  // For simplicity we use a server-side timestamp via .sv
-  // NOTE: the Flutter app reads 'timestamp' as a Unix ms integer,
-  // so we use Firebase server value here.
-  // ✅ FIX: Dashboard reads logData['lastUpdate'] for online status,
-  //         so we write BOTH 'timestamp' (for live_location/gemini)
-  //         AND 'lastUpdate' (for dashboard) with the same server value.
-  // ✅ FIX: Dashboard reads logData['batteryLevel'] first before falling
-  //         back to deviceStatus, so include it here too.
   StaticJsonDocument<512> doc;
   doc["latitude"]     = lat;
   doc["longitude"]    = lon;
   doc["altitude"]     = round(alt * 10) / 10.0;
-  doc["speed"]        = round(spd * 10) / 10.0;  // km/h
-  doc["accuracy"]     = gpsValid ? 5.0 : 50.0;   // estimated meters
+  doc["speed"]        = round(spd * 10) / 10.0;
+  doc["accuracy"]     = gpsValid ? 5.0 : 50.0;
   doc["locationType"] = gpsValid ? "gps" : "cached";
   doc["sos"]          = sosActive;
-  doc["batteryLevel"] = (int)round(batteryPct);   // dashboard reads this from logs
-
-  // Both 'timestamp' and 'lastUpdate' point to the same server value.
-  // 'timestamp'  → read by live_location_screen and gemini_service
-  // 'lastUpdate' → read by dashboard_screen for online/offline detection
+  doc["batteryLevel"] = (int)round(batteryPct);
   JsonObject ts = doc.createNestedObject("timestamp");
   ts[".sv"] = "timestamp";
   JsonObject lu = doc.createNestedObject("lastUpdate");
@@ -414,7 +374,6 @@ bool sendLocationLog() {
   String payload;
   serializeJson(doc, payload);
 
-  // POST → Firebase generates push ID
   String url = FIREBASE_URL + "/deviceLogs/" + userUid + "/"
                + DEVICE_CODE + ".json";
 
@@ -432,35 +391,20 @@ bool sendLocationLog() {
 }
 
 // ==================== FIREBASE: deviceStatus (PUT = overwrite) ==============
-//
-// PUT to .../deviceStatus/{deviceCode}.json
-// Always overwrites — this is the "latest snapshot" node.
-// Flutter dashboard and AI assistant read battery + SOS from here.
-//
 void sendDeviceStatus() {
-  // Fix 4: GPRS guard — skip HTTP entirely if not connected
   if (!modem.isGprsConnected()) {
     SerialMon.println("  ⚠️  sendDeviceStatus skipped — GPRS not connected");
     return;
   }
-  // ✅ Path matches real RTDB structure:
-  //    linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
-  // ✅ Field names match RTDB schema:
-  //    batteryLevel (not battery), sos (not isSOS)
-  // ✅ lastLocation updated with current GPS fix
   StaticJsonDocument<256> doc;
   doc["batteryLevel"] = (int)round(batteryPct);
   doc["sos"]          = sosActive;
-  doc["lastUpdate"]   = (unsigned long)(millis()); // overwritten by server .sv below
 
-  // lastLocation — mirrors the nested object already in RTDB
   JsonObject loc = doc.createNestedObject("lastLocation");
   loc["latitude"]  = gpsValid ? gpsLat  : lastLat;
   loc["longitude"] = gpsValid ? gpsLon  : lastLon;
   loc["altitude"]  = gpsValid ? gpsAlt  : lastAlt;
 
-  // Server-side timestamp for lastUpdate
-  // Firebase resolves {".sv":"timestamp"} to Unix ms on write
   doc.remove("lastUpdate");
   JsonObject ts = doc.createNestedObject("lastUpdate");
   ts[".sv"] = "timestamp";
@@ -468,8 +412,6 @@ void sendDeviceStatus() {
   String payload;
   serializeJson(doc, payload);
 
-  // PATCH via POST + x-http-method-override
-  // Path: linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus
   String url = FIREBASE_URL
                + "/linkedDevices/" + userUid
                + "/devices/" + DEVICE_CODE
@@ -502,21 +444,6 @@ void connectNetwork() {
 }
 
 // ==================== HTTP HELPERS ====================
-//
-// httpPost  — POST request (Firebase push, generates push ID)
-// _httpPut  — PUT request  (Firebase overwrite, deviceStatus)
-//
-// Both use raw SIM7600 AT+HTTP commands for full control.
-// AT+HTTPACTION=0 → GET
-// AT+HTTPACTION=1 → POST  (Firebase: creates push-ID child)
-// AT+HTTPACTION=2 → HEAD
-// AT+HTTPACTION=3 → DELETE
-//
-// ⚠️  SIM7600 has no native PUT or PATCH AT command.
-//   For deviceLogs  : plain POST → Firebase generates push ID (history)
-//   For deviceStatus: POST + ?x-http-method-override=PATCH in URL
-//                     → Firebase treats as PATCH (flat overwrite)
-//
 String _sendAT(const String& cmd, unsigned long timeoutMs = 2000) {
   SerialAT.println(cmd);
   String resp;
@@ -528,9 +455,7 @@ String _sendAT(const String& cmd, unsigned long timeoutMs = 2000) {
   return resp;
 }
 
-bool _httpRequest(const String& url, const String& payload,
-                  int action) {
-  // action: 0=GET, 1=POST
+bool _httpRequest(const String& url, const String& payload, int action) {
   _sendAT("AT+HTTPTERM", 500);
   delay(200);
   if (_sendAT("AT+HTTPINIT", 2000).indexOf("OK") == -1) {
@@ -541,11 +466,9 @@ bool _httpRequest(const String& url, const String& payload,
   _sendAT("AT+HTTPPARA=\"URL\",\"" + url + "\"", 1000);
 
   if (action == 1) {
-    // POST — send payload
     _sendAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 500);
     SerialAT.println("AT+HTTPDATA=" + String(payload.length()) + ",10000");
     delay(300);
-    // Wait for DOWNLOAD prompt
     String r;
     unsigned long dl = millis() + 3000;
     while (millis() < dl) {
@@ -561,7 +484,6 @@ bool _httpRequest(const String& url, const String& payload,
     delay(500);
   }
 
-  // Execute request
   SerialAT.println("AT+HTTPACTION=" + String(action));
   String result;
   unsigned long deadline = millis() + 20000;
@@ -585,20 +507,8 @@ bool httpPost(const String& url, const String& payload) {
   return _httpRequest(url, payload, 1);
 }
 
-// PUT via POST + Firebase method override header workaround
-// SIM7600 AT commands don't support PUT natively.
-// Firebase REST API accepts POST to a node path ending in .json
-// and treats it as a push (new child). For overwrite (PUT behaviour),
-// we POST directly to the exact node path — Firebase will merge,
-// effectively replacing the fields we send.
 void _httpPostOverwrite(const String& url, const String& payload) {
-  // Firebase REST API does not support PUT via AT+HTTPACTION.
-  // Appending ?x-http-method-override=PATCH tells Firebase to treat
-  // this POST as a PATCH — merging/overwriting fields at the exact
-  // node path rather than creating a new push-ID child.
-  // This is the correct way to keep deviceStatus as a flat object.
   String patchUrl = url;
-  // Remove trailing .json before appending override param
   if (patchUrl.endsWith(".json")) {
     patchUrl = patchUrl.substring(0, patchUrl.length() - 5);
   }
@@ -634,7 +544,7 @@ String httpGet(const String& url) {
   }
 
   delay(500);
-  while (SerialAT.available()) SerialAT.read(); // flush
+  while (SerialAT.available()) SerialAT.read();
 
   SerialAT.println("AT+HTTPREAD=0,4096");
   String body;
@@ -652,10 +562,6 @@ String httpGet(const String& url) {
 }
 
 // ==================== DEVICE AUTHENTICATION ====================
-//
-// Reads realDevices node, finds the entry whose deviceCode matches
-// DEVICE_CODE, then extracts actionOwnerID as userUid.
-//
 bool authenticateDevice() {
   String url = FIREBASE_URL + "/realDevices.json";
   SerialMon.println("  GET " + url);
@@ -673,7 +579,7 @@ bool authenticateDevice() {
   }
 
   for (JsonPair entry : doc.as<JsonObject>()) {
-    String uid    = entry.key().c_str();
+    String uid     = entry.key().c_str();
     JsonObject dev = entry.value().as<JsonObject>();
 
     if (!dev.containsKey("deviceCode")) continue;
@@ -691,42 +597,31 @@ bool authenticateDevice() {
   return false;
 }
 
-// ==================== SOS RETRY (Fix 1) ====================
-//
-// Called every update cycle (every 30s).
-// If a queued SOS exists and GPRS is now available, sends it.
-// Clears the queue on success or on TTL expiry (5 minutes).
-//
+// ==================== SOS RETRY ====================
 void trySendPendingSOS() {
   if (!sosPending.valid) return;
 
   unsigned long age = millis() - sosPending.queuedAt;
 
-  // TTL expired — give up
   if (age >= SOS_RETRY_TTL_MS) {
     SerialMon.println("⚠️  SOS retry TTL expired — discarding queued SOS");
     sosPending.valid = false;
     return;
   }
 
-  // Still no GPRS — wait for next cycle
   if (!modem.isGprsConnected()) {
-    SerialMon.printf("  📵 SOS retry pending — no GPRS (age: %lus)
-",
-                     age / 1000);
+    SerialMon.printf("  📵 SOS retry pending — no GPRS (age: %lus)\n", age / 1000);
     return;
   }
 
-  SerialMon.printf("  🔄 Retrying queued SOS (age: %lus)...
-", age / 1000);
+  SerialMon.printf("  🔄 Retrying queued SOS (age: %lus)...\n", age / 1000);
 
-  // Build SOS payload using stored values from when SOS was triggered
   StaticJsonDocument<512> doc;
   doc["latitude"]     = sosPending.lat;
   doc["longitude"]    = sosPending.lon;
   doc["altitude"]     = round(sosPending.alt * 10) / 10.0;
   doc["speed"]        = 0.0;
-  doc["accuracy"]     = 30.0;  // degraded — was offline when triggered
+  doc["accuracy"]     = 30.0;
   doc["locationType"] = "cached";
   doc["sos"]          = true;
   doc["batteryLevel"] = (int)round(sosPending.battery);
@@ -743,40 +638,34 @@ void trySendPendingSOS() {
 
   if (httpPost(url, payload)) {
     SerialMon.println("  ✅ Queued SOS delivered successfully!");
-    sosPending.valid = false;   // clear queue
-    // Also update deviceStatus to reflect SOS was triggered
+    sosPending.valid = false;
     sendDeviceStatus();
   } else {
     SerialMon.println("  ❌ SOS retry failed — will try again next cycle");
-    // sosPending.valid remains true → retry next cycle
   }
 }
 
 // ==================== LED HELPERS ====================
 void blinkRed(int times) {
   for (int i = 0; i < times; i++) {
-    digitalWrite(RED_PIN, HIGH);
-    delay(200);
-    digitalWrite(RED_PIN, LOW);
-    delay(200);
+    digitalWrite(RED_PIN, HIGH); delay(200);
+    digitalWrite(RED_PIN, LOW);  delay(200);
   }
 }
 
 void blinkGreen(int times) {
   for (int i = 0; i < times; i++) {
-    digitalWrite(GRN_PIN, HIGH);
-    delay(200);
-    digitalWrite(GRN_PIN, LOW);
-    delay(200);
+    digitalWrite(GRN_PIN, HIGH); delay(200);
+    digitalWrite(GRN_PIN, LOW);  delay(200);
   }
 }
 
 void flashSOS() {
   // Morse: S (···) O (−−−) S (···)
   auto dot  = []() { digitalWrite(RED_PIN,HIGH);delay(150);
-                      digitalWrite(RED_PIN,LOW); delay(150); };
+                     digitalWrite(RED_PIN,LOW); delay(150); };
   auto dash = []() { digitalWrite(RED_PIN,HIGH);delay(400);
-                      digitalWrite(RED_PIN,LOW); delay(150); };
+                     digitalWrite(RED_PIN,LOW); delay(150); };
   for (int i=0;i<3;i++) dot();  delay(200);
   for (int i=0;i<3;i++) dash(); delay(200);
   for (int i=0;i<3;i++) dot();
