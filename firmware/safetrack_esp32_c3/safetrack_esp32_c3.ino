@@ -160,13 +160,9 @@ void setup() {
   }
   SerialMon.println("Modem: " + modem.getModemInfo());
 
-  // Enable GPS
-  modem.enableGPS();
-  SerialMon.println("GPS enabled.");
-
   // Connect network
   connectNetwork();
-
+  
   // Authenticate against Firebase realDevices
   SerialMon.println("\n🔐 Authenticating...");
   if (authenticateDevice()) {
@@ -182,7 +178,26 @@ void setup() {
 
   SerialMon.println("\n✅ Ready. Hold SOS button 3s to trigger.\n");
   lastUpdateMs = millis();
+  
+    modem.enableGPS();
+    SerialMon.println("Waiting for GPS fix...");
+    unsigned long gpsStart = millis();
+    while (millis() - gpsStart < 60000) {  // wait up to 60s
+        if (modem.getGPS(&gpsLat, &gpsLon, &gpsAlt, &gpsSpeed, &gpsHeading)) {
+            if (gpsLat != 0.0 && gpsLon != 0.0) {
+                lastLat = gpsLat; lastLon = gpsLon; lastAlt = gpsAlt;
+                gpsValid = true;
+                SerialMon.printf("✅ GPS fix: %.6f, %.6f\n", gpsLat, gpsLon);
+                break;
+            }
+        }
+        blinkRed(1);
+        delay(3000);
+    }
+    if (!gpsValid) SerialMon.println("⚠️ No GPS fix at startup — will retry in loop");
 }
+
+
 
 // ==================== LOOP ====================
 void loop() {
@@ -298,27 +313,23 @@ void handleSOS() {
 
 // ==================== GPS ====================
 bool readGPS() {
-  SerialMon.println("  Reading GPS...");
-  float lat, lon, alt, spd;
-  int   hdg;
-
-  if (modem.getGPS(&lat, &lon, &alt, &spd, &hdg)) {
-    if (lat != 0.0 && lon != 0.0) {
-      gpsLat     = lat;
-      gpsLon     = lon;
-      gpsAlt     = alt;
-      gpsSpeed   = spd;
-      gpsHeading = hdg;
-      lastLat    = lat;
-      lastLon    = lon;
-      lastAlt    = alt;
-      SerialMon.printf("  ✅ Lat %.6f  Lon %.6f  Alt %.1fm  Spd %.1fkph\n",
-                       lat, lon, alt, spd);
-      return true;
+    SerialMon.println("  Reading GPS...");
+    for (int attempt = 0; attempt < 3; attempt++) {  // 3 attempts
+        float lat, lon, alt, spd;
+        int hdg;
+        if (modem.getGPS(&lat, &lon, &alt, &spd, &hdg)) {
+            if (lat != 0.0 && lon != 0.0) {
+                gpsLat = lat; gpsLon = lon; gpsAlt = alt;
+                gpsSpeed = spd; gpsHeading = hdg;
+                lastLat = lat; lastLon = lon; lastAlt = alt;
+                SerialMon.printf("  ✅ Lat %.6f  Lon %.6f\n", lat, lon);
+                return true;
+            }
+        }
+        delay(2000);  // wait 2s between attempts
     }
-  }
-  SerialMon.println("  ⚠️  No GPS fix — using cached location");
-  return false;
+    SerialMon.println("  ⚠️ No GPS fix — using cached");
+    return false;
 }
 
 // ==================== BATTERY ====================
