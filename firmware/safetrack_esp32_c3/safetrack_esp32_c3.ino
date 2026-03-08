@@ -57,6 +57,10 @@ const String FIREBASE_URL =
 const String DEVICE_CODE = "DEVICE1234";
 
 // ==================== APN ====================
+// APN settings
+// Smart: internet
+// Globe: http.globe.com.ph
+// DITO: internet.dito.ph
 const char APN[]  = "http.globe.com.ph";
 const char APN_USER[] = "";
 const char APN_PASS[] = "";
