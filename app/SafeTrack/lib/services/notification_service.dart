@@ -13,37 +13,60 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  // Notification channel IDs
-  static const String _deviationChannelId = 'safetrack_deviation';
+  // ── Notification channel IDs ──────────────────────────────────
+  static const String _deviationChannelId   = 'safetrack_deviation';
   static const String _deviationChannelName = 'Route Deviation Alerts';
   static const String _deviationChannelDesc =
       'Alerts when a child deviates from their registered route';
 
-  static const String _sosChannelId = 'safetrack_sos';
+  static const String _sosChannelId   = 'safetrack_sos';
   static const String _sosChannelName = 'SOS Alerts';
   static const String _sosChannelDesc =
       'Emergency SOS alerts from child devices';
 
-  // Notification IDs — use deviceCode hashCode so each
-  // device gets its own persistent notification slot
+  static const String _behaviorChannelId   = 'safetrack_behavior';
+  static const String _behaviorChannelName = 'Behavior Alerts';
+  static const String _behaviorChannelDesc =
+      'Alerts for late arrivals, absences, and anomalies';
+
+  // ── Notification ID ranges ────────────────────────────────────
+  //
+  // FIX: Each alert type occupies a dedicated, non-overlapping integer range
+  // so notifications from different alert types can NEVER collide regardless
+  // of how many devices a parent links.
+  //
+  // Previous design used % 10000 for deviation and (deviationId + 5000) % 10000
+  // for SOS — both lived in 0–9999. With enough devices, a new device's
+  // deviationId could equal another device's sosId, causing one notification
+  // to silently overwrite the other in the system tray.
+  //
+  // New ranges (each has 50,000 slots = plenty of headroom):
+  //   Deviation : 1,000,000 – 1,049,999
+  //   SOS       : 2,000,000 – 2,049,999
+  //   Behavior  : 3,000,000 – 3,049,999
+  //
+  // The 950,001-wide gap between each range guarantees zero cross-type overlap.
+
   static int _deviationNotifId(String deviceCode) =>
-      deviceCode.hashCode.abs() % 10000;
+      1000000 + (deviceCode.hashCode.abs() % 50000);
 
-  // Payload key used to route tap → correct screen
-  static const String _payloadDeviceCodeKey = 'deviceCode';
+  static int _sosNotifId(String deviceCode) =>
+      2000000 + (deviceCode.hashCode.abs() % 50000);
 
-  /// Called when the user taps a notification.
-  /// Your navigator should listen to this stream.
+  // Unique per device+type combination so two children can both have
+  // outstanding "late" alerts simultaneously without one overwriting the other.
+  static int _behaviorNotifId(String deviceCode, String type) =>
+      3000000 + ((deviceCode.hashCode ^ type.hashCode).abs() % 50000);
+
+  /// Set by the tap handler so the navigator can route to the right screen.
   static String? pendingDeviceCode;
 
   // ── Initialization ────────────────────────────────────────────
 
   Future<void> initialize() async {
-    // Android settings
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // iOS settings — request permissions at init time
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -62,7 +85,6 @@ class NotificationService {
           _onBackgroundNotificationTapped,
     );
 
-    // Create Android notification channels
     await _createAndroidChannels();
 
     debugPrint('[NotificationService] Initialized');
@@ -96,19 +118,28 @@ class NotificationService {
         ledColor: Color(0xFFFF0000),
       ),
     );
+
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _behaviorChannelId,
+        _behaviorChannelName,
+        description: _behaviorChannelDesc,
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
   }
 
-  // ── Permission request (call from UI after first launch) ──────
+  // ── Permission request ────────────────────────────────────────
 
   Future<bool> requestPermissions() async {
-    // Android 13+
     final androidPlugin =
         _plugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     final androidGranted =
         await androidPlugin?.requestNotificationsPermission() ?? true;
 
-    // iOS
     final iosPlugin = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     final iosGranted = await iosPlugin?.requestPermissions(
@@ -119,14 +150,15 @@ class NotificationService {
         true;
 
     debugPrint(
-        '[NotificationService] Permissions — Android: $androidGranted, iOS: $iosGranted');
+        '[NotificationService] Permissions — '
+        'Android: $androidGranted, iOS: $iosGranted');
     return androidGranted && iosGranted;
   }
 
   // ── Deviation alert ───────────────────────────────────────────
 
   Future<void> showDeviationAlert(DeviationEvent event) async {
-    final notifId = _deviationNotifId(event.deviceCode);
+    final notifId  = _deviationNotifId(event.deviceCode);
     final distance = event.distanceMeters.toStringAsFixed(0);
 
     final androidDetails = AndroidNotificationDetails(
@@ -155,30 +187,26 @@ class NotificationService {
       interruptionLevel: InterruptionLevel.timeSensitive,
     );
 
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
     await _plugin.show(
       notifId,
       '⚠️ ${event.childName} Off Route',
       '${distance}m from "${event.routeName}" — Tap to view location',
-      details,
-      payload: event.deviceCode, // used on tap to navigate
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+      payload: event.deviceCode,
     );
 
     debugPrint(
-        '[NotificationService] Deviation alert shown for ${event.childName}');
+        '[NotificationService] Deviation alert shown for ${event.childName} '
+        '(notifId: $notifId)');
   }
 
-  // ── SOS alert (bonus — reuse existing SOS detection) ─────────
+  // ── SOS alert ─────────────────────────────────────────────────
 
   Future<void> showSosAlert({
     required String childName,
     required String deviceCode,
   }) async {
-    final notifId = (_deviationNotifId(deviceCode) + 5000) % 10000;
+    final notifId = _sosNotifId(deviceCode);
 
     final androidDetails = AndroidNotificationDetails(
       _sosChannelId,
@@ -187,7 +215,7 @@ class NotificationService {
       importance: Importance.max,
       priority: Priority.max,
       ticker: '🆘 SOS Alert',
-      fullScreenIntent: true, // pops over lock screen on Android
+      fullScreenIntent: true,
       color: const Color(0xFFFF0000),
       styleInformation: BigTextStyleInformation(
         '$childName has triggered an SOS emergency alert! '
@@ -212,15 +240,74 @@ class NotificationService {
       payload: deviceCode,
     );
 
-    debugPrint('[NotificationService] SOS alert shown for $childName');
+    debugPrint(
+        '[NotificationService] SOS alert shown for $childName '
+        '(notifId: $notifId)');
   }
 
-  // ── Cancel a specific device notification ─────────────────────
+  // ── Behavior alert ────────────────────────────────────────────
 
+  Future<void> showBehaviorAlert({
+    required String childName,
+    required String deviceCode,
+    required String type,   // 'late' | 'absent' | 'anomaly'
+    required String message,
+  }) async {
+    final titles = {
+      'late':    '⏰ Late Arrival — $childName',
+      'absent':  '📋 Possible Absence — $childName',
+      'anomaly': '⚠️ Unusual Activity — $childName',
+    };
+    final title   = titles[type] ?? '🔔 Alert — $childName';
+    final notifId = _behaviorNotifId(deviceCode, type);
+
+    await _plugin.show(
+      notifId,
+      title,
+      message,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _behaviorChannelId,
+          _behaviorChannelName,
+          channelDescription: _behaviorChannelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: deviceCode,
+    );
+
+    debugPrint(
+        '[NotificationService] Behavior alert shown: $type for $childName '
+        '(notifId: $notifId)');
+  }
+
+  // ── Cancel helpers ────────────────────────────────────────────
+
+  /// Cancel only the deviation alert for a device.
   Future<void> cancelDeviationAlert(String deviceCode) async {
     await _plugin.cancel(_deviationNotifId(deviceCode));
   }
 
+  /// Cancel ALL notification slots for a given device —
+  /// deviation, SOS, and all known behavior alert types.
+  Future<void> cancelAllForDevice(String deviceCode) async {
+    await _plugin.cancel(_deviationNotifId(deviceCode));
+    await _plugin.cancel(_sosNotifId(deviceCode));
+    for (final type in ['late', 'absent', 'anomaly']) {
+      await _plugin.cancel(_behaviorNotifId(deviceCode, type));
+    }
+    debugPrint(
+        '[NotificationService] All notifications cancelled for $deviceCode');
+  }
+
+  /// Cancel every notification across all devices and types.
   Future<void> cancelAll() async {
     await _plugin.cancelAll();
   }
@@ -230,7 +317,6 @@ class NotificationService {
   static void _onNotificationTapped(NotificationResponse response) {
     final deviceCode = response.payload;
     if (deviceCode != null && deviceCode.isNotEmpty) {
-      // Store for AuthWrapper / navigator to pick up after app resumes
       pendingDeviceCode = deviceCode;
       debugPrint(
           '[NotificationService] Tapped — navigate to $deviceCode');
@@ -238,7 +324,7 @@ class NotificationService {
   }
 }
 
-// Must be a top-level function for background tap handling
+// Must be a top-level function for background tap handling.
 @pragma('vm:entry-point')
 void _onBackgroundNotificationTapped(NotificationResponse response) {
   final deviceCode = response.payload;

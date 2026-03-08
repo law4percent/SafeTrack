@@ -636,7 +636,7 @@ class _DeviceLocationCardState extends State<DeviceLocationCard> {
                           .map((r) => Polyline(
                                 points: r.waypoints,
                                 color:
-                                    Colors.green.withOpacity(0.8),
+                                    Colors.green.withValues(alpha: 0.8),
                                 strokeWidth: 4,
                                 pattern:
                                     const StrokePattern.dotted(),
@@ -737,7 +737,7 @@ class _DeviceLocationCardState extends State<DeviceLocationCard> {
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.white
-                                    .withOpacity(0.92),
+                                    .withValues(alpha: 0.92),
                                 borderRadius:
                                     BorderRadius.circular(8),
                                 border: Border.all(
@@ -793,7 +793,7 @@ class _DeviceLocationCardState extends State<DeviceLocationCard> {
       padding:
           const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha:0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color),
       ),
@@ -1005,7 +1005,7 @@ class _FullScreenMapPageState extends State<_FullScreenMapPage> {
                       .map((r) => Polyline(
                             points: r.waypoints,
                             color:
-                                Colors.green.withOpacity(0.85),
+                                Colors.green.withValues(alpha:0.85),
                             strokeWidth: 5,
                             pattern:
                                 const StrokePattern.dotted(),
