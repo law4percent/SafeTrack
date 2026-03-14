@@ -84,7 +84,7 @@ class _QuickActionsGridState extends State<QuickActionsGrid> with SingleTickerPr
           _toggleExpanded();
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const AlertsScreen()),
+            MaterialPageRoute(builder: (_) => const AlertScreen()),
           );
         };
 

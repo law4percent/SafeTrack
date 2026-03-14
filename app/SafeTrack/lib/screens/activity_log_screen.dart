@@ -8,7 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 class ActivityLogScreen extends StatefulWidget {
   final String? deviceCode;
   final String? childName;
-  
+
   const ActivityLogScreen({
     super.key,
     this.deviceCode,
@@ -22,7 +22,6 @@ class ActivityLogScreen extends StatefulWidget {
 class _ActivityLogScreenState extends State<ActivityLogScreen> {
   bool _isLoading = false;
   bool _showCachedLogs = false;
-  bool _showCurrentLocation = false;
   List<Map<String, dynamic>> _activities = [];
   final DatabaseReference _databaseRef = FirebaseDatabase.instance.ref();
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -34,23 +33,19 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   Future<void> _loadActivities() async {
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       final user = _auth.currentUser;
       if (user == null) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         return;
       }
 
-      List<Map<String, dynamic>> tempActivities = [];
+      final List<Map<String, dynamic>> tempActivities = [];
 
       if (widget.deviceCode != null) {
-        // Load logs for specific device only
+        // Single device view
         await _loadDeviceLogs(
           user.uid,
           widget.deviceCode!,
@@ -58,7 +53,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
           tempActivities,
         );
       } else {
-        // Load logs for all devices
+        // All devices view
         final linkedDevicesSnapshot = await _databaseRef
             .child('linkedDevices')
             .child(user.uid)
@@ -66,29 +61,30 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
             .get();
 
         if (linkedDevicesSnapshot.exists) {
-          final devicesData = linkedDevicesSnapshot.value as Map<dynamic, dynamic>;
+          final devicesData =
+              linkedDevicesSnapshot.value as Map<dynamic, dynamic>;
 
           for (var entry in devicesData.entries) {
             final deviceCode = entry.key.toString();
             final deviceData = entry.value as Map<dynamic, dynamic>;
-            final childName = deviceData['childName']?.toString() ?? 'Unknown Child';
-            final isEnabled = deviceData['deviceEnabled']?.toString() == 'true';
+            final childName =
+                deviceData['childName']?.toString() ?? 'Unknown Child';
+            final isEnabled =
+                deviceData['deviceEnabled']?.toString() == 'true';
 
             if (!isEnabled) continue;
 
-            await _loadDeviceLogs(user.uid, deviceCode, childName, tempActivities);
+            await _loadDeviceLogs(
+                user.uid, deviceCode, childName, tempActivities);
           }
         }
       }
 
-      // Sort by timestamp (newest first)
-      tempActivities.sort((a, b) => 
-        (b['lastUpdate'] as int).compareTo(a['lastUpdate'] as int)
-      );
+      // Sort newest first by lastUpdate (Firebase server timestamp Unix ms)
+      tempActivities.sort((a, b) =>
+          (b['lastUpdate'] as int).compareTo(a['lastUpdate'] as int));
 
-      setState(() {
-        _activities = tempActivities;
-      });
+      setState(() => _activities = tempActivities);
     } catch (e) {
       debugPrint('Error loading activities: $e');
       if (mounted) {
@@ -97,10 +93,71 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         );
       }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
+  }
+
+  // ── Firmware field adapter ────────────────────────────────────────
+  // Firmware writes flat fields to every deviceLogs push entry:
+  //   latitude, longitude, altitude, speed, accuracy,
+  //   locationType ("gps" | "cached"), sos, batteryLevel,
+  //   timestamp {.sv}, lastUpdate {.sv}
+  Map<String, dynamic> _logEntryToActivity({
+    required String logId,
+    required String deviceCode,
+    required String childName,
+    required Map<dynamic, dynamic> raw,
+  }) {
+    final lat = (raw['latitude']  as num?)?.toDouble();
+    final lng = (raw['longitude'] as num?)?.toDouble();
+    final alt = (raw['altitude']  as num?)?.toDouble() ?? 0.0;
+    final spd = (raw['speed']     as num?)?.toDouble() ?? 0.0;
+    final acc = (raw['accuracy']  as num?)?.toDouble() ?? 0.0;
+
+    final locationType = raw['locationType']?.toString() ?? 'cached';
+    final isGps     = locationType == 'gps';
+    final hasCoords = lat != null &&
+        lng != null &&
+        !(lat == 0.0 && lng == 0.0);
+    final gpsAvailable = isGps && hasCoords;
+    final isCached     = locationType == 'cached';
+
+    final lastUpdate = _toInt(raw['lastUpdate']);
+
+    final sosVal  = raw['sos'];
+    final sosActive = sosVal == true || sosVal == 'true';
+
+    final batteryLevel =
+        (raw['batteryLevel'] as num?)?.toDouble() ?? 0.0;
+
+    return {
+      'logId':        logId,
+      'deviceCode':   deviceCode,
+      'childName':    childName,
+      'lastUpdate':   lastUpdate,
+      'batteryLevel': batteryLevel,
+      'gpsAvailable': gpsAvailable,
+      'isCached':     isCached,
+      'locationType': locationType,
+      'sos':          sosActive,
+      'location': hasCoords
+          ? {
+              'latitude':  lat,
+              'longitude': lng,
+              'altitude':  alt,
+            }
+          : null,
+      'speed':    spd,
+      'accuracy': acc,
+    };
+  }
+
+  int _toInt(dynamic val) {
+    if (val == null) return 0;
+    if (val is int) return val;
+    if (val is double) return val.toInt();
+    if (val is String) return int.tryParse(val) ?? 0;
+    return 0;
   }
 
   Future<void> _loadDeviceLogs(
@@ -109,76 +166,54 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
     String childName,
     List<Map<String, dynamic>> tempActivities,
   ) async {
+    // FIX (minor): limitToLast(50) — downloads only the 50 most recent entries.
+    // Was unbounded .get() which downloaded the full log history. After weeks
+    // of 30s firmware intervals this becomes thousands of entries per device,
+    // impacting load time and Firebase bandwidth costs.
     final logsSnapshot = await _databaseRef
         .child('deviceLogs')
         .child(userId)
         .child(deviceCode)
+        .limitToLast(50)
         .get();
 
     if (logsSnapshot.exists) {
       final logsData = logsSnapshot.value as Map<dynamic, dynamic>;
-      
+
       logsData.forEach((key, value) {
         if (value is Map) {
-          final currentLocation = value['currentLocation'] as Map<dynamic, dynamic>?;
-          final lastLocation = value['lastLocation'] as Map<dynamic, dynamic>?;
-          final locationStatus = currentLocation?['status']?.toString() ?? 'unknown';
-          
-          tempActivities.add({
-            'logId': key.toString(),
-            'deviceCode': deviceCode,
-            'childName': childName,
-            'lastUpdate': value['lastUpdate'] as int? ?? 0,
-            'batteryLevel': (value['batteryLevel'] as num?)?.toDouble() ?? 0.0,
-            'gpsAvailable': value['gpsAvailable'] as bool? ?? false,
-            'sos': value['sos'] as bool? ?? false,
-            'currentLocation': currentLocation != null ? {
-              'latitude': (currentLocation['latitude'] as num?)?.toDouble() ?? 0.0,
-              'longitude': (currentLocation['longitude'] as num?)?.toDouble() ?? 0.0,
-              'altitude': (currentLocation['altitude'] as num?)?.toDouble() ?? 0.0,
-              'status': locationStatus,
-            } : null,
-            'lastLocation': lastLocation != null ? {
-              'latitude': (lastLocation['latitude'] as num?)?.toDouble() ?? 0.0,
-              'longitude': (lastLocation['longitude'] as num?)?.toDouble() ?? 0.0,
-              'altitude': (lastLocation['altitude'] as num?)?.toDouble() ?? 0.0,
-            } : null,
-            'isCached': locationStatus == 'cached',
-          });
+          tempActivities.add(_logEntryToActivity(
+            logId:      key.toString(),
+            deviceCode: deviceCode,
+            childName:  childName,
+            raw:        value as Map<dynamic, dynamic>,
+          ));
         }
       });
     }
   }
 
-  Future<void> _refreshData() async {
-    await _loadActivities();
-  }
+  Future<void> _refreshData() async => _loadActivities();
 
-  void _handleRefreshButton() {
-    _refreshData();
-  }
+  String _formatCoords(double lat, double lng) =>
+      '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
 
-  String _getLocationName(double latitude, double longitude) {
-    return '${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)}';
-  }
-
+  // Filter: hide cached-location entries unless the user opts in
   List<Map<String, dynamic>> get _filteredActivities {
-    if (_showCachedLogs) {
-      return _activities;
-    }
-    return _activities.where((activity) => activity['isCached'] != true).toList();
+    if (_showCachedLogs) return _activities;
+    return _activities.where((a) => a['isCached'] != true).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredActivities = _filteredActivities;
-    
+    final filtered = _filteredActivities;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.childName != null 
-              ? '${widget.childName}\'s Activity Log' 
-              : 'Activity Log'
+          widget.childName != null
+              ? '${widget.childName}\'s Activity Log'
+              : 'Activity Log',
         ),
         backgroundColor: Colors.blue[800],
         foregroundColor: Colors.white,
@@ -188,17 +223,14 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
               _showCachedLogs ? Icons.filter_alt : Icons.filter_alt_off,
               color: Colors.white,
             ),
-            onPressed: () {
-              setState(() {
-                _showCachedLogs = !_showCachedLogs;
-              });
-            },
+            onPressed: () =>
+                setState(() => _showCachedLogs = !_showCachedLogs),
             tooltip: _showCachedLogs ? 'Hide Cached Logs' : 'Show Cached Logs',
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _handleRefreshButton,
-            tooltip: 'Refresh Activities',
+            onPressed: _refreshData,
+            tooltip: 'Refresh',
           ),
         ],
       ),
@@ -206,7 +238,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Info Card
+                // ── Summary card ───────────────────────────────
                 Card(
                   margin: const EdgeInsets.all(16),
                   child: Padding(
@@ -215,14 +247,15 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.location_on, color: Colors.blue[800], size: 32),
+                            Icon(Icons.location_on,
+                                color: Colors.blue[800], size: 32),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    widget.childName != null 
+                                    widget.childName != null
                                         ? '${widget.childName}\'s Locations'
                                         : 'Location Activities',
                                     style: const TextStyle(
@@ -231,11 +264,10 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                                     ),
                                   ),
                                   Text(
-                                    '${filteredActivities.length} location update${filteredActivities.length != 1 ? 's' : ''}',
+                                    '${filtered.length} location update'
+                                    '${filtered.length != 1 ? 's' : ''}',
                                     style: TextStyle(
-                                      color: Colors.grey[600],
-                                      fontSize: 14,
-                                    ),
+                                        color: Colors.grey[600], fontSize: 14),
                                   ),
                                   const SizedBox(height: 4),
                                   Row(
@@ -244,15 +276,21 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                                         width: 8,
                                         height: 8,
                                         decoration: BoxDecoration(
-                                          color: filteredActivities.isEmpty ? Colors.grey : Colors.green,
+                                          color: filtered.isEmpty
+                                              ? Colors.grey
+                                              : Colors.green,
                                           shape: BoxShape.circle,
                                         ),
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        filteredActivities.isEmpty ? 'No data' : 'Tracking active',
+                                        filtered.isEmpty
+                                            ? 'No data'
+                                            : 'Tracking active',
                                         style: TextStyle(
-                                          color: filteredActivities.isEmpty ? Colors.grey : Colors.green,
+                                          color: filtered.isEmpty
+                                              ? Colors.grey
+                                              : Colors.green,
                                           fontSize: 12,
                                         ),
                                       ),
@@ -263,67 +301,45 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                             ),
                           ],
                         ),
-                        
-                        // Filter Info
-                        if (_showCachedLogs || _showCurrentLocation) ...[
+                        if (_showCachedLogs) ...[
                           const Divider(height: 20),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if (_showCachedLogs)
-                                Chip(
-                                  avatar: const Icon(Icons.info_outline, size: 16),
-                                  label: const Text('Showing cached logs', style: TextStyle(fontSize: 12)),
-                                  backgroundColor: Colors.blue[50],
-                                  deleteIcon: const Icon(Icons.close, size: 16),
-                                  onDeleted: () {
-                                    setState(() {
-                                      _showCachedLogs = false;
-                                    });
-                                  },
-                                ),
-                              if (_showCurrentLocation)
-                                Chip(
-                                  avatar: const Icon(Icons.my_location, size: 16),
-                                  label: const Text('Showing current location', style: TextStyle(fontSize: 12)),
-                                  backgroundColor: Colors.green[50],
-                                  deleteIcon: const Icon(Icons.close, size: 16),
-                                  onDeleted: () {
-                                    setState(() {
-                                      _showCurrentLocation = false;
-                                    });
-                                  },
-                                ),
-                            ],
+                          Chip(
+                            avatar: const Icon(Icons.info_outline, size: 16),
+                            label: const Text('Showing cached logs',
+                                style: TextStyle(fontSize: 12)),
+                            backgroundColor: Colors.blue[50],
+                            deleteIcon: const Icon(Icons.close, size: 16),
+                            onDeleted: () =>
+                                setState(() => _showCachedLogs = false),
                           ),
                         ],
                       ],
                     ),
                   ),
                 ),
-                
-                // Activities List
+
+                // ── Activity list ──────────────────────────────
                 Expanded(
-                  child: filteredActivities.isEmpty
+                  child: filtered.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.history, size: 64, color: Colors.grey),
-                              SizedBox(height: 16),
-                              Text(
-                                'No activities yet',
-                                style: TextStyle(color: Colors.grey, fontSize: 16),
-                              ),
-                              SizedBox(height: 8),
+                              const Icon(Icons.history,
+                                  size: 64, color: Colors.grey),
+                              const SizedBox(height: 16),
+                              const Text('No activities yet',
+                                  style: TextStyle(
+                                      color: Colors.grey, fontSize: 16)),
+                              const SizedBox(height: 8),
                               Text(
                                 widget.childName != null
                                     ? 'No location updates for ${widget.childName}'
-                                    : _showCachedLogs 
+                                    : _showCachedLogs
                                         ? 'No location updates found'
                                         : 'Try showing cached logs',
-                                style: TextStyle(color: Colors.grey, fontSize: 14),
+                                style: const TextStyle(
+                                    color: Colors.grey, fontSize: 14),
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -333,11 +349,9 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                           onRefresh: _refreshData,
                           child: ListView.builder(
                             padding: const EdgeInsets.all(16),
-                            itemCount: filteredActivities.length,
-                            itemBuilder: (context, index) {
-                              final activity = filteredActivities[index];
-                              return _buildActivityItem(activity, index);
-                            },
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) =>
+                                _buildActivityItem(filtered[index], index),
                           ),
                         ),
                 ),
@@ -347,54 +361,57 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   Widget _buildActivityItem(Map<String, dynamic> activity, int index) {
-    final timestamp = DateTime.fromMillisecondsSinceEpoch(activity['lastUpdate']);
-    final timeString = DateFormat('MMM dd, yyyy • h:mm a').format(timestamp);
-    final lastLocation = activity['lastLocation'] as Map<String, dynamic>?;
-    final currentLocation = activity['currentLocation'] as Map<String, dynamic>?;
-    final locationStatus = currentLocation?['status'] as String? ?? 'unknown';
-    final isCached = activity['isCached'] as bool? ?? false;
+    final timestamp = DateTime.fromMillisecondsSinceEpoch(
+        activity['lastUpdate'] as int);
+    final timeString =
+        DateFormat('MMM dd, yyyy • h:mm a').format(timestamp);
+
+    final location    = activity['location'] as Map<String, dynamic>?;
     final gpsAvailable = activity['gpsAvailable'] as bool? ?? false;
-    final batteryLevel = (activity['batteryLevel'] as num?)?.toDouble() ?? 0.0;
-    final childName = activity['childName'] as String;
-    final sosActive = activity['sos'] as bool? ?? false;
-    
+    final isCached    = activity['isCached']     as bool? ?? false;
+    final batteryLevel =
+        (activity['batteryLevel'] as num?)?.toDouble() ?? 0.0;
+    final childName  = activity['childName'] as String;
+    final sosActive  = activity['sos']       as bool? ?? false;
+
     String locationName = 'No location';
-    if (lastLocation != null) {
-      locationName = _getLocationName(
-        lastLocation['latitude'] as double, 
-        lastLocation['longitude'] as double
+    if (location != null) {
+      locationName = _formatCoords(
+        location['latitude']  as double,
+        location['longitude'] as double,
       );
     }
-    
-    // Determine icon and color based on location status and GPS
+
     IconData icon;
-    Color iconColor;
-    Color bgColor;
-    
+    Color    iconColor;
+    Color    bgColor;
+
     if (sosActive) {
-      icon = Icons.warning;
+      icon      = Icons.warning;
       iconColor = Colors.red;
-      bgColor = Colors.red[100]!;
+      bgColor   = Colors.red[100]!;
     } else if (gpsAvailable) {
-      icon = Icons.gps_fixed;
+      icon      = Icons.gps_fixed;
       iconColor = Colors.green;
-      bgColor = Colors.green[100]!;
+      bgColor   = Colors.green[100]!;
     } else if (isCached) {
-      icon = Icons.cached;
+      icon      = Icons.cached;
       iconColor = Colors.orange;
-      bgColor = Colors.orange[100]!;
+      bgColor   = Colors.orange[100]!;
     } else {
-      icon = Icons.location_off;
+      icon      = Icons.location_off;
       iconColor = Colors.grey;
-      bgColor = Colors.grey[100]!;
+      bgColor   = Colors.grey[100]!;
     }
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: sosActive ? 4 : 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: sosActive ? BorderSide(color: Colors.red, width: 2) : BorderSide.none,
+        side: sosActive
+            ? const BorderSide(color: Colors.red, width: 2)
+            : BorderSide.none,
       ),
       child: ListTile(
         leading: Container(
@@ -409,7 +426,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (widget.deviceCode == null) // Show child name only if viewing all devices
+            if (widget.deviceCode == null) ...[
               Text(
                 childName,
                 style: TextStyle(
@@ -418,25 +435,24 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                   fontSize: 14,
                 ),
               ),
-            if (widget.deviceCode == null)
               const SizedBox(height: 2),
+            ],
             Row(
               children: [
                 Expanded(
                   child: Text(
                     locationName,
                     style: const TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 13,
-                    ),
-                    overflow: TextOverflow.ellipsis,  // ← ADD THIS
-                    maxLines: 1,                       // ← ADD THIS
+                        fontWeight: FontWeight.w500, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
                 if (sosActive) ...[
-                  const SizedBox(width: 8),           // ← ADD THIS for spacing
+                  const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.red,
                       borderRadius: BorderRadius.circular(10),
@@ -466,26 +482,28 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
               runSpacing: 4,
               children: [
                 _buildStatusChip(
-                  gpsAvailable ? 'GPS Available' : 'GPS Unavailable',
+                  gpsAvailable ? 'GPS Fix' : 'No Fix',
                   gpsAvailable ? Colors.green : Colors.grey,
                 ),
                 _buildStatusChip(
-                  locationStatus == 'success' ? 'Success' : 'Cached',
-                  locationStatus == 'success' ? Colors.blue : Colors.orange,
+                  isCached ? 'Cached' : 'Live',
+                  isCached ? Colors.orange : Colors.blue,
                 ),
                 if (batteryLevel > 0)
                   _buildStatusChip(
-                    '${batteryLevel.toStringAsFixed(0)}%',  // ← Correct: percentage
-                    batteryLevel < 20 ? Colors.red : batteryLevel < 50 ? Colors.orange : Colors.green,  // ← Correct thresholds
+                    '${batteryLevel.toStringAsFixed(0)}%',
+                    batteryLevel < 20
+                        ? Colors.red
+                        : batteryLevel < 50
+                            ? Colors.orange
+                            : Colors.green,
                   ),
               ],
             ),
           ],
         ),
         trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
-        onTap: () {
-          _showActivityDetails(activity);
-        },
+        onTap: () => _showActivityDetails(activity),
       ),
     );
   }
@@ -494,9 +512,9 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,
@@ -510,9 +528,15 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   void _showActivityDetails(Map<String, dynamic> activity) {
-    final lastLocation = activity['lastLocation'] as Map<String, dynamic>?;
-    final currentLocation = activity['currentLocation'] as Map<String, dynamic>?;
-    
+    final location    = activity['location'] as Map<String, dynamic>?;
+    final gpsAvailable = activity['gpsAvailable'] as bool? ?? false;
+    final isCached    = activity['isCached']     as bool? ?? false;
+    final batteryLevel =
+        (activity['batteryLevel'] as num?)?.toDouble() ?? 0.0;
+    final sosActive = activity['sos']      as bool? ?? false;
+    final speed     = (activity['speed']   as num?)?.toDouble() ?? 0.0;
+    final accuracy  = (activity['accuracy'] as num?)?.toDouble() ?? 0.0;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -522,95 +546,80 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDetailRow('Child Name', activity['childName']),
-              _buildDetailRow('Device Code', activity['deviceCode']),
+              _buildDetailRow('Child Name',  activity['childName']  as String),
+              _buildDetailRow('Device Code', activity['deviceCode'] as String),
               const Divider(height: 20),
-              
-              // Last Location (Always shown)
-              const Text(
-                'Last Known Location (GPS Success)',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+
+              Row(
+                children: [
+                  const Text('Location',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: gpsAvailable
+                          ? Colors.green.withValues(alpha: 0.1)
+                          : Colors.orange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      (activity['locationType'] as String? ?? 'cached')
+                          .toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color:
+                            gpsAvailable ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
-              if (lastLocation != null) ...[
-                _buildDetailRow('Latitude', lastLocation['latitude'].toString()),
-                _buildDetailRow('Longitude', lastLocation['longitude'].toString()),
-                if (lastLocation['altitude'] != null && lastLocation['altitude'] != 0)
-                  _buildDetailRow('Altitude', '${lastLocation['altitude']}m'),
+
+              if (location != null) ...[
+                _buildDetailRow('Latitude',
+                    (location['latitude'] as double).toStringAsFixed(6)),
+                _buildDetailRow('Longitude',
+                    (location['longitude'] as double).toStringAsFixed(6)),
+                if ((location['altitude'] as double? ?? 0.0) != 0.0)
+                  _buildDetailRow('Altitude',
+                      '${(location['altitude'] as double).toStringAsFixed(1)} m'),
               ] else
-                const Text('No GPS location recorded', style: TextStyle(color: Colors.grey)),
-              
-              // Current Location (Toggle-able)
-              if (_showCurrentLocation && currentLocation != null) ...[
-                const Divider(height: 20),
-                Row(
-                  children: [
-                    const Text(
-                      'Current Location',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: currentLocation['status'] == 'success' 
-                            ? Colors.green.withOpacity(0.1)
-                            : Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        currentLocation['status']?.toString().toUpperCase() ?? 'UNKNOWN',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: currentLocation['status'] == 'success' 
-                              ? Colors.green 
-                              : Colors.orange,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _buildDetailRow('Latitude', currentLocation['latitude'].toString()),
-                _buildDetailRow('Longitude', currentLocation['longitude'].toString()),
-                if (currentLocation['altitude'] != null && currentLocation['altitude'] != 0)
-                  _buildDetailRow('Altitude', '${currentLocation['altitude']}m'),
-              ],
-              
+                const Text('No location recorded',
+                    style: TextStyle(color: Colors.grey)),
+
               const Divider(height: 20),
-              _buildDetailRow('GPS Available', activity['gpsAvailable'] ? 'Yes' : 'No'),
-              _buildDetailRow('Battery Level', '${(activity['batteryLevel'] as num).toStringAsFixed(0)}%'),
-              _buildDetailRow('SOS Active', activity['sos'] ? 'YES' : 'No'),
+
+              _buildDetailRow('GPS Fix',  gpsAvailable ? 'Yes' : 'No'),
+              _buildDetailRow('Location Type',
+                  isCached ? 'Cached (no live fix)' : 'Live GPS'),
+              if (speed > 0)
+                _buildDetailRow(
+                    'Speed', '${speed.toStringAsFixed(1)} km/h'),
+              if (accuracy > 0)
+                _buildDetailRow('Accuracy',
+                    '±${accuracy.toStringAsFixed(0)} m'),
+              _buildDetailRow(
+                  'Battery', '${batteryLevel.toStringAsFixed(0)}%'),
+              _buildDetailRow(
+                  'SOS Active', sosActive ? 'YES 🚨' : 'No'),
+
               const Divider(height: 20),
               _buildDetailRow(
                 'Timestamp',
                 DateFormat('MMM dd, yyyy at h:mm:ss a').format(
-                  DateTime.fromMillisecondsSinceEpoch(activity['lastUpdate'])
+                  DateTime.fromMillisecondsSinceEpoch(
+                      activity['lastUpdate'] as int),
                 ),
               ),
             ],
           ),
         ),
         actions: [
-          if (currentLocation != null)
-            TextButton.icon(
-              icon: Icon(
-                _showCurrentLocation ? Icons.visibility_off : Icons.visibility,
-                size: 18,
-              ),
-              label: Text(
-                _showCurrentLocation ? 'Hide' : 'Show',
-                style: const TextStyle(fontSize: 13),
-              ),
-              onPressed: () {
-                setState(() {
-                  _showCurrentLocation = !_showCurrentLocation;
-                });
-                Navigator.pop(context);
-                _showActivityDetails(activity);
-              },
-            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
@@ -630,7 +639,8 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
             width: 120,
             child: Text(
               '$label:',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
           Expanded(

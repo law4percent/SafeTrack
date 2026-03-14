@@ -10,8 +10,8 @@ Description: Test code to get GPS location from SIM7600 using satellite data.
 
 // ==================== PIN DEFINITIONS ====================
 // ESP32-C3 Super Mini — adjust to available GPIO pins
-#define rxPin 20   // or GPIO4, GPIO5 — check your board's pinout
-#define txPin 21
+#define rxPin 4   // or GPIO4, GPIO5 — check your board's pinout
+#define txPin 5
 #define RED_PIN 8   // onboard LED is GPIO8 on most C3 Super Mini
 #define GRN_PIN 3
 
@@ -19,7 +19,7 @@ HardwareSerial SerialAT(1);
 #define SerialMon Serial
 
 // ==================== GPRS CONFIGURATION ====================
-const char apn[]  = "http.globe.com.ph"; // Your APN
+const char apn[]  = "internet.dito.ph"; // Your APN
 const char gprsUser[] = "";
 const char gprsPass[] = "";
 

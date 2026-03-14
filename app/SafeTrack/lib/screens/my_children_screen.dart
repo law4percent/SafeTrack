@@ -17,6 +17,9 @@ class LinkedDevice {
   final String? yearLevel;
   final String? section;
   final bool deviceEnabled;
+  // Feature 1 — School schedule fields
+  final String? schoolTimeIn;   // stored as "HH:MM" 24hr e.g. "07:30"
+  final String? schoolTimeOut;  // stored as "HH:MM" 24hr e.g. "17:00"
 
   LinkedDevice({
     required this.deviceCode,
@@ -25,6 +28,8 @@ class LinkedDevice {
     this.yearLevel,
     this.section,
     this.deviceEnabled = true,
+    this.schoolTimeIn,
+    this.schoolTimeOut,
   });
 
   factory LinkedDevice.fromRTDB(String code, Map<dynamic, dynamic> data) {
@@ -35,7 +40,34 @@ class LinkedDevice {
       yearLevel: data['yearLevel']?.toString(),
       section: data['section']?.toString(),
       deviceEnabled: data['deviceEnabled']?.toString().toLowerCase() == 'true',
+      schoolTimeIn: data['schoolTimeIn']?.toString(),
+      schoolTimeOut: data['schoolTimeOut']?.toString(),
     );
+  }
+
+  /// Parse "HH:MM" string into TimeOfDay, returns null if invalid.
+  static TimeOfDay? parseTime(String? hhmm) {
+    if (hhmm == null || hhmm.isEmpty) return null;
+    final parts = hhmm.split(':');
+    if (parts.length != 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  /// Format TimeOfDay as "HH:MM" 24hr string for RTDB storage.
+  static String formatTimeOfDay(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  /// Display string e.g. "07:30 AM" for UI labels.
+  static String displayTime(String? hhmm) {
+    final t = parseTime(hhmm);
+    if (t == null) return 'Not set';
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final period = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $period';
   }
 }
 
@@ -301,6 +333,9 @@ class DeviceCard extends StatelessWidget {
     final sectionController =
         TextEditingController(text: device.section ?? '');
     String? updatedImageBase64 = device.imageProfileBase64;
+    // Feature 1 — school schedule state
+    TimeOfDay? schoolTimeIn  = LinkedDevice.parseTime(device.schoolTimeIn);
+    TimeOfDay? schoolTimeOut = LinkedDevice.parseTime(device.schoolTimeOut);
 
     final result = await showDialog<bool>(
       context: context,
@@ -404,6 +439,86 @@ class DeviceCard extends StatelessWidget {
                       hintText: 'e.g., Diamond',
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  // Feature 1 — School schedule time pickers
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'SCHOOL SCHEDULE',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueAccent,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Used by the AI assistant to detect late arrivals and absences.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.login, size: 16),
+                          label: Text(
+                            schoolTimeIn != null
+                                ? 'In: ${LinkedDevice.formatTimeOfDay(schoolTimeIn!)}'
+                                : 'Set Time In',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: statefulContext,
+                              initialTime: schoolTimeIn ??
+                                  const TimeOfDay(hour: 7, minute: 30),
+                              builder: (c, child) => MediaQuery(
+                                data: MediaQuery.of(c).copyWith(
+                                    alwaysUse24HourFormat: true),
+                                child: child!,
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() => schoolTimeIn = picked);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.logout, size: 16),
+                          label: Text(
+                            schoolTimeOut != null
+                                ? 'Out: ${LinkedDevice.formatTimeOfDay(schoolTimeOut!)}'
+                                : 'Set Time Out',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: statefulContext,
+                              initialTime: schoolTimeOut ??
+                                  const TimeOfDay(hour: 17, minute: 0),
+                              builder: (c, child) => MediaQuery(
+                                data: MediaQuery.of(c).copyWith(
+                                    alwaysUse24HourFormat: true),
+                                child: child!,
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() => schoolTimeOut = picked);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
                   Row(
                     children: [
@@ -468,6 +583,11 @@ class DeviceCard extends StatelessWidget {
         'yearLevel': yearLevelController.text.trim(),
         'section': sectionController.text.trim(),
         'imageProfileBase64': updatedImageBase64 ?? '',
+        // Feature 1 — persist school schedule
+        if (schoolTimeIn != null)
+          'schoolTimeIn': LinkedDevice.formatTimeOfDay(schoolTimeIn!),
+        if (schoolTimeOut != null)
+          'schoolTimeOut': LinkedDevice.formatTimeOfDay(schoolTimeOut!),
       });
 
       if (context.mounted) {
@@ -637,18 +757,41 @@ class DeviceCard extends StatelessWidget {
                   ),
               ],
             ),
-            subtitle: Text(
-              'ID: ${device.deviceCode}',
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ID: ${device.deviceCode}',
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                if (device.schoolTimeIn != null || device.schoolTimeOut != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.schedule, size: 12, color: Colors.blueAccent),
+                        const SizedBox(width: 4),
+                        Expanded(                // <── ADD THIS
+                          child: Text(
+                            'In: ${LinkedDevice.displayTime(device.schoolTimeIn)}  '
+                            'Out: ${LinkedDevice.displayTime(device.schoolTimeOut)}',
+                            style: const TextStyle(fontSize: 11, color: Colors.blueAccent),
+                            overflow: TextOverflow.ellipsis,  // <── ADD THIS
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ✅ NEW: Route management button
                 IconButton(
-                  icon: const Icon(Icons.route,
-                      color: Colors.green, size: 20),
+                  icon: const Icon(Icons.route, color: Colors.green, size: 20),
                   tooltip: 'Manage Routes',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -660,13 +803,15 @@ class DeviceCard extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.edit_outlined,
-                      color: Colors.blueAccent, size: 20),
+                  icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => _editDevice(context, device),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline,
-                      color: Colors.red, size: 20),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => _removeDevice(context),
                 ),
               ],
@@ -730,6 +875,9 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
   final _sectionController = TextEditingController();
   bool _isLoading = false;
   String? _imageBase64;
+  // Feature 1 — school schedule
+  TimeOfDay? _schoolTimeIn;
+  TimeOfDay? _schoolTimeOut;
 
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
@@ -934,6 +1082,9 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
         'imageProfileBase64': _imageBase64 ?? '',
         'deviceEnabled': 'true',
         'addedAt': ServerValue.timestamp,
+        // Feature 1 — school schedule
+        'schoolTimeIn':  _schoolTimeIn  != null ? LinkedDevice.formatTimeOfDay(_schoolTimeIn!)  : '',
+        'schoolTimeOut': _schoolTimeOut != null ? LinkedDevice.formatTimeOfDay(_schoolTimeOut!) : '',
         'deviceStatus': {
           'lastUpdate': 0,
           'batteryLevel': 0,
@@ -1062,6 +1213,86 @@ class AddDeviceDialogState extends State<AddDeviceDialog> {
                   border: OutlineInputBorder(),
                   hintText: 'e.g., Diamond',
                 ),
+              ),
+              const SizedBox(height: 16),
+              // Feature 1 — School schedule
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'SCHOOL SCHEDULE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueAccent,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Helps the AI detect late arrivals and absences.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.login, size: 16),
+                      label: Text(
+                        _schoolTimeIn != null
+                            ? 'In: ${LinkedDevice.formatTimeOfDay(_schoolTimeIn!)}'
+                            : 'Set Time In',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _schoolTimeIn ??
+                              const TimeOfDay(hour: 7, minute: 30),
+                          builder: (c, child) => MediaQuery(
+                            data: MediaQuery.of(c)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                        );
+                        if (picked != null) {
+                          setState(() => _schoolTimeIn = picked);
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.logout, size: 16),
+                      label: Text(
+                        _schoolTimeOut != null
+                            ? 'Out: ${LinkedDevice.formatTimeOfDay(_schoolTimeOut!)}'
+                            : 'Set Time Out',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _schoolTimeOut ??
+                              const TimeOfDay(hour: 17, minute: 0),
+                          builder: (c, child) => MediaQuery(
+                            data: MediaQuery.of(c)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                        );
+                        if (picked != null) {
+                          setState(() => _schoolTimeOut = picked);
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
               Row(
