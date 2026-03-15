@@ -110,7 +110,7 @@ const unsigned long SOS_RETRY_TTL_MS = 300000; // give up after 5 min
 
 // Timing
 unsigned long lastUpdateMs = 0;
-const unsigned long UPDATE_INTERVAL_MS = 30000;  // send every 30s
+const unsigned long UPDATE_INTERVAL_MS = 120000 ;  // send every 2 minutes 60000 x 2 = 120000
 
 // ==================== PROTOTYPES ====================
 bool  authenticateDevice();
