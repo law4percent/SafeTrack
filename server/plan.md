@@ -12,7 +12,7 @@ It consists of three components:
 |---|---|---|
 | Child device | ESP32-C3 + SIM7600 (GPRS) + GPS | ✅ Complete (firmware v4.4) |
 | Mobile app | Flutter + Firebase RTDB | ✅ App-side FCM complete |
-| Backend server | Python on laptop (physical machine) | 🔄 In progress |
+| Backend server | Python on laptop (physical machine) | ✅ Complete |
 
 ---
 
@@ -138,25 +138,32 @@ Flutter App (parent phone — displayer only)
 | `alerts_screen.dart` | ✅ Done | `'silent'` chip + config |
 | `dashboard_screen.dart` | ✅ Done | SOS local notif only, no alertLogs write |
 
-### Python Server — Core Files
+### Python Server — Core Files ✅
 
 | File | Status | Notes |
 |---|---|---|
-| `requirements.txt` | ✅ Done | |
+| `requirements.txt` | ✅ Done | `firebase-admin==6.5.0`, `pytz==2024.1` |
 | `config.py` | ✅ Done | Fill in `DATABASE_URL` before running |
-| `utils/haversine.py` | 🔄 Next | Port of `haversine_service.dart` |
-| `utils/fcm_sender.py` | ⏳ Pending | Firebase Admin SDK FCM |
-| `services/logger.py` | ⏳ Pending | Copy of existing logger |
-| `services/deviation_monitor.py` | ⏳ Pending | Port of `path_monitor_service.dart` |
-| `services/behavior_monitor.py` | ⏳ Pending | Port of `behavior_monitor_service.dart` |
-| `services/silence_monitor.py` | ⏳ Pending | New — no Dart equivalent |
-| `main.py` | ⏳ Pending | Entry point, starts all monitors |
+| `utils/haversine.py` | ✅ Done | Port of `haversine_service.dart` |
+| `utils/fcm_sender.py` | ✅ Done | Firebase Admin SDK FCM |
+| `services/logger.py` | ✅ Done | Copy of existing logger |
+| `services/deviation_monitor.py` | ✅ Done | Port of `path_monitor_service.dart` |
+| `services/behavior_monitor.py` | ✅ Done | Port of `behavior_monitor_service.dart` |
+| `services/silence_monitor.py` | ✅ Done | New — no Dart equivalent |
+| `main.py` | ✅ Done | Entry point, starts all monitors |
+
+### How to Run
+```bash
+cd SafeTrack/server
+pip install -r requirements.txt
+python main.py
+```
 
 ---
 
 ## Pending ⏳
 
-### Python Server — Setup Steps
+### Setup Steps (one-time)
 1. Get `serviceAccountKey.json` from Firebase Console →
    Project Settings → Service Accounts → Generate new private key
 2. Fill in `DATABASE_URL` in `config.py`
@@ -171,6 +178,7 @@ Flutter App (parent phone — displayer only)
 - Test offline pending notifications (app offline → server fires → app reconnects)
 - Test dedup (app and server both detect same event → only 1 notification)
 - Test `deviceEnabled = false` guard (disable device in MyChildrenScreen → no alerts)
+- Test multiple parent accounts (server monitors all UIDs simultaneously)
 
 ---
 
