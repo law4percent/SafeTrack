@@ -31,6 +31,7 @@ from config import (
 )
 from services.logger import get_logger
 from services.deviation_monitor import DeviationMonitor
+from services.sos_monitor import SosMonitor
 from services.behavior_monitor import run_behavior_checks
 from services.silence_monitor import run_silence_checks
 
@@ -136,6 +137,38 @@ def run_cron():
 
 # ── Deviation monitor runner ──────────────────────────────────────────────────
 
+def run_sos_monitor():
+    """
+    Starts the real-time SOS monitor.
+    Runs in a background thread.
+    SosMonitor attaches RTDB listeners — stays alive indefinitely.
+    """
+    try:
+        log(
+            details      = "Starting SOS monitor...",
+            log_type     = "info",
+            show_console = True,
+        )
+        monitor = SosMonitor()
+        monitor.start()
+        log(
+            details      = "SOS monitor running",
+            log_type     = "info",
+            show_console = True,
+        )
+
+        # Keep thread alive while server is running
+        while not _shutdown.is_set():
+            _shutdown.wait(timeout=60)
+
+    except Exception as e:
+        log(
+            details      = f"SOS monitor error: {e}",
+            log_type     = "error",
+            show_console = True,
+        )
+
+
 def run_deviation_monitor():
     """
     Starts the real-time deviation monitor.
@@ -218,7 +251,15 @@ def main():
             show_console = True,
         )
 
-    # Step 3: Start deviation monitor in background thread
+    # Step 3: Start SOS monitor in background thread
+    sos_thread = threading.Thread(
+        target = run_sos_monitor,
+        name   = "SosMonitor",
+        daemon = True,
+    )
+    sos_thread.start()
+
+    # Step 4: Start deviation monitor in background thread
     deviation_thread = threading.Thread(
         target = run_deviation_monitor,
         name   = "DeviationMonitor",
@@ -226,7 +267,7 @@ def main():
     )
     deviation_thread.start()
 
-    # Step 4: Start cron in background thread
+    # Step 5: Start cron in background thread
     cron_thread = threading.Thread(
         target = run_cron,
         name   = "CronRunner",
@@ -240,14 +281,15 @@ def main():
         show_console = True,
     )
 
-    # Step 5: Keep main thread alive until shutdown
+    # Step 6: Keep main thread alive until shutdown
     try:
         while not _shutdown.is_set():
             _shutdown.wait(timeout=1)
     except KeyboardInterrupt:
         _handle_shutdown(None, None)
 
-    # Step 6: Wait for threads to finish cleanly
+    # Step 7: Wait for threads to finish cleanly
+    sos_thread.join(timeout=5)
     deviation_thread.join(timeout=5)
     cron_thread.join(timeout=5)
 
