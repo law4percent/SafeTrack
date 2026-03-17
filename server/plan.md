@@ -100,15 +100,27 @@ Flutter App (parent phone — displayer only)
 - `firebase_messaging: ^16.0.2` added to `pubspec.yaml`
 - FCM background handler registered in `main.dart`
 - FCM token saved to `users/{uid}/fcmToken` on login + token refresh
-- `FirebaseMessaging.onMessage` → `showFromFcm()` (foreground)
+- `FirebaseMessaging.onMessage` → `showFromFcm()` (foreground, SOS skipped)
 - `FirebaseMessaging.onMessageOpenedApp` → `_routeFcmMessage()` (background tap)
 - `getInitialMessage()` in `AuthWrapper.initState` (killed-state tap)
 - Tap routing: SOS + deviation → `LiveLocationsScreen`, others → `AlertScreen`
+- SOS FCM skipped in foreground — app RTDB listener handles it immediately
 
 ### Flutter App — Alert Types ✅
 - `'silent'` filter chip added to `AlertScreen`
 - `'silent'` case added to `_alertConfig()` (📡 Device Silent, deepPurple)
 - `'silent'` added to `cancelAllForDevice()` and `showBehaviorAlert()` titles
+
+### Flutter App — SOS Architecture ✅
+- `dashboard_screen.dart` — removed `PathMonitorService().saveSosAlert()` from
+  `_listenToSOS()` — server now owns alertLogs write for SOS
+- `dashboard_screen.dart` — removed unused `path_monitor_service.dart` import
+- `dashboard_screen.dart` — removed lat/lng extraction block (no longer needed)
+- `main.dart` — SOS type skipped in `onMessage` foreground listener to prevent
+  duplicate notification (app RTDB listener already shows it immediately)
+- App still shows local SOS notification instantly via `_listenToSOS()`
+- Server owns: alertLogs write + FCM push for SOS
+- App owns: local notification display for SOS (foreground only)
 
 ### Python Server — Config ✅
 - `requirements.txt` — `firebase-admin==6.5.0`, `pytz==2024.1`
@@ -116,7 +128,15 @@ Flutter App (parent phone — displayer only)
 
 ---
 
-## In Progress 🔄
+## App-Side Files — Final Status ✅
+
+| File | Status | Notes |
+|---|---|---|
+| `pubspec.yaml` | ✅ Done | `firebase_messaging: ^16.0.2` added |
+| `main.dart` | ✅ Done | FCM init, token save, routing, SOS skip |
+| `notification_service.dart` | ✅ Done | `showFromFcm()`, `'silent'` support |
+| `alerts_screen.dart` | ✅ Done | `'silent'` chip + config |
+| `dashboard_screen.dart` | ✅ Done | SOS local notif only, no alertLogs write |
 
 ### Python Server — Core Files
 
@@ -158,7 +178,7 @@ Flutter App (parent phone — displayer only)
 
 | Type | Trigger | Detected by | Title | Screen on tap |
 |---|---|---|---|---|
-| `sos` | SOS button pressed | Firmware → RTDB | 🆘 SOS — {name} | LiveLocationsScreen |
+| `sos` | SOS button pressed | App RTDB listener (local notif) + Server RTDB listener (alertLogs + FCM) | 🆘 SOS — {name} | LiveLocationsScreen |
 | `deviation` | Off registered route | Server (RTDB listener) | ⚠️ {name} Off Route | LiveLocationsScreen |
 | `late` | Late to school | Server (cron 5 min) | ⏰ Late Arrival — {name} | AlertScreen |
 | `absent` | No school GPS today | Server (cron 5 min) | 📋 Possible Absence — {name} | AlertScreen |

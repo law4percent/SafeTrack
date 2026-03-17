@@ -105,7 +105,12 @@ Future<void> _initializeFcm() async {
 
   // Foreground FCM message → show local notification
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    debugPrint('[FCM] Foreground message: type=${message.data['type']}');
+    final type = message.data['type'] as String? ?? '';
+    debugPrint('[FCM] Foreground message: type=$type');
+    // Skip SOS — app's own RTDB listener in dashboard_screen.dart
+    // already shows the local notification immediately when sos: true fires.
+    // Showing it again from FCM would give the parent a duplicate alert.
+    if (type == 'sos') return;
     NotificationService().showFromFcm(message);
   });
 

@@ -14,7 +14,6 @@ import 'package:intl/intl.dart';
 import 'activity_log_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/notification_service.dart';
-import '../services/path_monitor_service.dart';
 
 final FirebaseDatabase rtdbInstance = FirebaseDatabase.instance;
 
@@ -582,33 +581,9 @@ class _ChildCardState extends State<ChildCard> {
         final childName =
             widget.deviceData['childName']?.toString() ?? 'Unknown';
 
-        double? lat;
-        double? lng;
-
-        final lastLoc =
-            _latestLog?['lastLocation'] as Map<dynamic, dynamic>?;
-        if (lastLoc != null) {
-          lat = (lastLoc['latitude'] as num?)?.toDouble();
-          lng = (lastLoc['longitude'] as num?)?.toDouble();
-        } else {
-          final cachedStatus =
-              widget.deviceData['deviceStatus'] as Map<dynamic, dynamic>?;
-          final cachedLoc =
-              cachedStatus?['lastLocation'] as Map<dynamic, dynamic>?;
-          lat = (cachedLoc?['latitude'] as num?)?.toDouble();
-          lng = (cachedLoc?['longitude'] as num?)?.toDouble();
-        }
-
         NotificationService().showSosAlert(
           childName: childName,
           deviceCode: widget.deviceCode,
-        );
-
-        PathMonitorService().saveSosAlert(
-          deviceCode: widget.deviceCode,
-          childName: childName,
-          latitude: lat,
-          longitude: lng,
         );
       }
 
