@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
@@ -13,6 +14,18 @@ import 'services/background_monitor_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/live_location_screen.dart';
+import 'screens/alerts_screen.dart';
+
+
+@pragma('vm:entry-point')
+Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint('[FCM] Background message: '
+      'type=${message.data['type']} '
+      'device=${message.data['deviceCode']}');
+  // The visible notification in background/killed state is handled
+  // by the FCM notification payload sent from the server directly.
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +42,10 @@ void main() async {
   // ── Background monitor (workmanager) ─────────────────────────
   await BackgroundMonitorService().initialize();
   await BackgroundMonitorService().startPeriodicMonitoring();
+
+  // ── FCM setup ────────────────────────────────────────────────
+  FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
+  await _initializeFcm();
 
   // ── Foreground path monitor ───────────────────────────────────
   // Starts only if a user is already signed in on cold start
@@ -59,6 +76,50 @@ void _initializeRealtimeDatabase() {
   }
 }
 
+Future<void> _initializeFcm() async {
+  final messaging = FirebaseMessaging.instance;
+
+  await messaging.requestPermission(
+    alert:         true,
+    badge:         true,
+    sound:         true,
+    announcement:  false,
+    carPlay:       false,
+    criticalAlert: false,
+    provisional:   false,
+  );
+
+  // Save token on startup if user is already signed in
+  final user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    await _saveFcmToken(user.uid);
+  }
+
+  // Re-save whenever FCM rotates the token
+  messaging.onTokenRefresh.listen((newToken) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      await _saveFcmToken(currentUser.uid);
+    }
+  });
+
+  // Foreground FCM message → show local notification
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    debugPrint('[FCM] Foreground message: type=${message.data['type']}');
+    NotificationService().showFromFcm(message);
+  });
+
+  debugPrint('[FCM] Initialized');
+}
+
+Future<void> _saveFcmToken(String uid) async {
+  final token = await FirebaseMessaging.instance.getToken();
+  if (token == null) return;
+  await FirebaseDatabase.instance
+      .ref('users/$uid/fcmToken')
+      .set(token);
+  debugPrint('[FCM] Token saved for uid=$uid');
+}
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -90,10 +151,42 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    // Check for a pending notification tap after app resumes
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Killed-state FCM tap
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) _routeFcmMessage(initial);
       _handlePendingNotification();
     });
+
+    // Background FCM tap (app suspended, not killed)
+    FirebaseMessaging.onMessageOpenedApp.listen(_routeFcmMessage);
+  }
+
+  void _routeFcmMessage(RemoteMessage message) {
+    final type       = message.data['type']       as String? ?? '';
+    final deviceCode = message.data['deviceCode'] as String? ?? '';
+
+    if (deviceCode.isEmpty) return;
+    if (FirebaseAuth.instance.currentUser == null) return;
+
+    switch (type) {
+      case 'sos':
+      case 'deviation':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const LiveLocationsScreen()),
+        );
+        break;
+      case 'late':
+      case 'absent':
+      case 'anomaly':
+      case 'silent':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AlertScreen()),
+        );
+        break;
+      default:
+        debugPrint('[FCM] _routeFcmMessage: unknown type "$type"');
+    }
   }
 
   void _handlePendingNotification() {

@@ -1,6 +1,7 @@
 // app/SafeTrack/lib/services/notification_service.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/path_monitor_service.dart';
 
 class NotificationService {
@@ -257,6 +258,7 @@ class NotificationService {
       'late':    '⏰ Late Arrival — $childName',
       'absent':  '📋 Possible Absence — $childName',
       'anomaly': '⚠️ Unusual Activity — $childName',
+      'silent':  '📡 Device Silent — $childName',
     };
     final title   = titles[type] ?? '🔔 Alert — $childName';
     final notifId = _behaviorNotifId(deviceCode, type);
@@ -288,6 +290,67 @@ class NotificationService {
         '(notifId: $notifId)');
   }
 
+  // ── FCM foreground handler ────────────────────────────────────
+
+  Future<void> showFromFcm(RemoteMessage message) async {
+    final type       = message.data['type']       as String? ?? '';
+    final deviceCode = message.data['deviceCode'] as String? ?? '';
+    final childName  = message.data['childName']  as String? ?? 'Your child';
+    final msgBody    = message.data['message']    as String? ?? '';
+
+    switch (type) {
+      case 'sos':
+        await showSosAlert(
+          childName:  childName,
+          deviceCode: deviceCode,
+        );
+        break;
+
+      case 'deviation':
+        await _plugin.show(
+          _deviationNotifId(deviceCode),
+          '⚠️ $childName Off Route',
+          msgBody.isNotEmpty ? msgBody : 'Tap to view location',
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              _deviationChannelId,
+              _deviationChannelName,
+              channelDescription: _deviationChannelDesc,
+              importance: Importance.high,
+              priority:   Priority.high,
+              icon: '@mipmap/ic_launcher',
+            ),
+            iOS: const DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+              interruptionLevel: InterruptionLevel.timeSensitive,
+            ),
+          ),
+          payload: deviceCode,
+        );
+        break;
+
+      case 'late':
+      case 'absent':
+      case 'anomaly':
+      case 'silent':
+        await showBehaviorAlert(
+          childName:  childName,
+          deviceCode: deviceCode,
+          type:       type,
+          message:    msgBody.isNotEmpty ? msgBody : 'Tap to view details',
+        );
+        break;
+
+      default:
+        debugPrint('[NotificationService] showFromFcm: unknown type "$type"');
+    }
+
+    debugPrint('[NotificationService] showFromFcm type="$type" '
+        'device="$deviceCode"');
+  }
+
   // ── Cancel helpers ────────────────────────────────────────────
 
   /// Cancel only the deviation alert for a device.
@@ -300,7 +363,7 @@ class NotificationService {
   Future<void> cancelAllForDevice(String deviceCode) async {
     await _plugin.cancel(_deviationNotifId(deviceCode));
     await _plugin.cancel(_sosNotifId(deviceCode));
-    for (final type in ['late', 'absent', 'anomaly']) {
+    for (final type in ['late', 'absent', 'anomaly', 'silent']) {
       await _plugin.cancel(_behaviorNotifId(deviceCode, type));
     }
     debugPrint(
