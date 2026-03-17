@@ -15,7 +15,7 @@ SERVICE_ACCOUNT_PATH = "serviceAccountKey.json"
 
 # Your Firebase Realtime Database URL.
 # Format: https://<project-id>-default-rtdb.firebaseio.com
-DATABASE_URL = "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app/"
+DATABASE_URL = "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 # ── Deviation monitor ─────────────────────────────────────────────────────────
 # Cooldown between deviation alerts for the same device + route.
