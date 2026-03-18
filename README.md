@@ -349,9 +349,9 @@ Firebase Realtime Database
 
 ## App UI Screenshots
 
-| Login | Sign Up | Settings |
+| Login | Sign Up | Dashboard |
 |---|---|---|
-| ![Login](docs/images/ui_login.jpg) | ![Dashboard](docs/images/ui_dashboard.jpg) | ![Live Location](docs/images/ui_live_location.jpg) |
+| ![Login](docs/images/ui_login.jpg) | ![ign Up](docs/images/ui_signup.jpg) | ![Dashboard](docs/images/ui_dashboard.jpg) |
 
 | Live Location | My Children | Settings |
 |---|---|---|
