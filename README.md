@@ -349,17 +349,17 @@ Firebase Realtime Database
 
 ## App UI Screenshots
 
-| Dashboard | Live Location | My Children |
+| Login | Sign Up | Settings |
 |---|---|---|
-| ![Dashboard](docs/images/ui_dashboard.jpg) | ![Live Location](docs/images/ui_live_location.jpg) | ![My Children](docs/images/ui_my_children.jpg) |
+| ![Login](docs/images/ui_login.jpg) | ![Dashboard](docs/images/ui_dashboard.jpg) | ![Live Location](docs/images/ui_live_location.jpg) |
+
+| Live Location | My Children | Settings |
+|---|---|---|
+| ![Live Location](docs/images/ui_live_location.jpg) | ![My Children](docs/images/ui_my_children.jpg) | ![Settings](docs/images/ui_settings.jpg) |
 
 | Route Registration | Alerts | AI Assistant |
 |---|---|---|
 | ![Routes](docs/images/ui_route_registration.jpg) | ![Alerts](docs/images/ui_alerts.jpg) | ![AI](docs/images/ui_ai_assistant.jpg) |
-
-| Login | Sign Up | Settings |
-|---|---|---|
-| ![Login](docs/images/ui_login.jpg) | ![Sign Up](docs/images/ui_signup.jpg) | ![Settings](docs/images/ui_settings.jpg) |
 
 ---
 
