@@ -359,7 +359,7 @@ Firebase Realtime Database
 
 | Login | Sign Up | Settings |
 |---|---|---|
-| ![Login](docs/images/ui_login.png) | ![Sign Up](docs/images/ui_signup.png) | ![Settings](docs/images/ui_settings.png) |
+| ![Login](docs/images/ui_login.jpg) | ![Sign Up](docs/images/ui_signup.jpg) | ![Settings](docs/images/ui_settings.jpg) |
 
 ---
 
