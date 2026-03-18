@@ -1,6 +1,7 @@
 // app/SafeTrack/lib/services/notification_service.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/path_monitor_service.dart';
 
 class NotificationService {
@@ -31,21 +32,13 @@ class NotificationService {
 
   // ── Notification ID ranges ────────────────────────────────────
   //
-  // FIX: Each alert type occupies a dedicated, non-overlapping integer range
-  // so notifications from different alert types can NEVER collide regardless
-  // of how many devices a parent links.
+  // Each alert type occupies a dedicated, non-overlapping integer range
+  // so notifications from different alert types can NEVER collide
+  // regardless of how many devices a parent links.
   //
-  // Previous design used % 10000 for deviation and (deviationId + 5000) % 10000
-  // for SOS — both lived in 0–9999. With enough devices, a new device's
-  // deviationId could equal another device's sosId, causing one notification
-  // to silently overwrite the other in the system tray.
-  //
-  // New ranges (each has 50,000 slots = plenty of headroom):
   //   Deviation : 1,000,000 – 1,049,999
   //   SOS       : 2,000,000 – 2,049,999
   //   Behavior  : 3,000,000 – 3,049,999
-  //
-  // The 950,001-wide gap between each range guarantees zero cross-type overlap.
 
   static int _deviationNotifId(String deviceCode) =>
       1000000 + (deviceCode.hashCode.abs() % 50000);
@@ -53,13 +46,28 @@ class NotificationService {
   static int _sosNotifId(String deviceCode) =>
       2000000 + (deviceCode.hashCode.abs() % 50000);
 
-  // Unique per device+type combination so two children can both have
-  // outstanding "late" alerts simultaneously without one overwriting the other.
   static int _behaviorNotifId(String deviceCode, String type) =>
       3000000 + ((deviceCode.hashCode ^ type.hashCode).abs() % 50000);
 
-  /// Set by the tap handler so the navigator can route to the right screen.
-  static String? pendingDeviceCode;
+  // ── Pending navigation ────────────────────────────────────────
+  //
+  // FIX: Replaced static String? pendingDeviceCode with ValueNotifier.
+  //
+  // The old design stored only deviceCode in a static variable and relied
+  // on _handlePendingNotification() being called from initState. This meant
+  // taps were silently ignored when the app was foreground or resuming from
+  // background because initState never re-fires in those cases.
+  //
+  // New design:
+  //   - pendingNav is a ValueNotifier<_PendingNav?> holding both type and
+  //     deviceCode so the navigator can route to the correct screen.
+  //   - AuthWrapper listens to pendingNav via addListener — reacts instantly
+  //     regardless of app state (foreground, background, or killed).
+  //   - Payload format changed from "deviceCode" to "type:deviceCode"
+  //     across all show methods so the tap handler can extract both values.
+
+  static final ValueNotifier<PendingNav?> pendingNav =
+      ValueNotifier(null);
 
   // ── Initialization ────────────────────────────────────────────
 
@@ -192,7 +200,8 @@ class NotificationService {
       '⚠️ ${event.childName} Off Route',
       '${distance}m from "${event.routeName}" — Tap to view location',
       NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: event.deviceCode,
+      // FIX: payload now includes type for correct screen routing on tap
+      payload: 'deviation:${event.deviceCode}',
     );
 
     debugPrint(
@@ -237,7 +246,8 @@ class NotificationService {
       '🆘 SOS — $childName',
       'Emergency alert triggered! Tap to view location.',
       NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: deviceCode,
+      // FIX: payload now includes type for correct screen routing on tap
+      payload: 'sos:$deviceCode',
     );
 
     debugPrint(
@@ -250,13 +260,14 @@ class NotificationService {
   Future<void> showBehaviorAlert({
     required String childName,
     required String deviceCode,
-    required String type,   // 'late' | 'absent' | 'anomaly'
+    required String type,   // 'late' | 'absent' | 'anomaly' | 'silent'
     required String message,
   }) async {
     final titles = {
       'late':    '⏰ Late Arrival — $childName',
       'absent':  '📋 Possible Absence — $childName',
       'anomaly': '⚠️ Unusual Activity — $childName',
+      'silent':  '📡 Device Silent — $childName',
     };
     final title   = titles[type] ?? '🔔 Alert — $childName';
     final notifId = _behaviorNotifId(deviceCode, type);
@@ -280,12 +291,75 @@ class NotificationService {
           presentSound: true,
         ),
       ),
-      payload: deviceCode,
+      // FIX: payload now includes type for correct screen routing on tap
+      payload: '$type:$deviceCode',
     );
 
     debugPrint(
         '[NotificationService] Behavior alert shown: $type for $childName '
         '(notifId: $notifId)');
+  }
+
+  // ── FCM foreground handler ────────────────────────────────────
+
+  Future<void> showFromFcm(RemoteMessage message) async {
+    final type       = message.data['type']       as String? ?? '';
+    final deviceCode = message.data['deviceCode'] as String? ?? '';
+    final childName  = message.data['childName']  as String? ?? 'Your child';
+    final msgBody    = message.data['message']    as String? ?? '';
+
+    switch (type) {
+      case 'sos':
+        await showSosAlert(
+          childName:  childName,
+          deviceCode: deviceCode,
+        );
+        break;
+
+      case 'deviation':
+        await _plugin.show(
+          _deviationNotifId(deviceCode),
+          '⚠️ $childName Off Route',
+          msgBody.isNotEmpty ? msgBody : 'Tap to view location',
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              _deviationChannelId,
+              _deviationChannelName,
+              channelDescription: _deviationChannelDesc,
+              importance: Importance.high,
+              priority:   Priority.high,
+              icon: '@mipmap/ic_launcher',
+            ),
+            iOS: const DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+              interruptionLevel: InterruptionLevel.timeSensitive,
+            ),
+          ),
+          // FIX: payload includes type for correct routing
+          payload: 'deviation:$deviceCode',
+        );
+        break;
+
+      case 'late':
+      case 'absent':
+      case 'anomaly':
+      case 'silent':
+        await showBehaviorAlert(
+          childName:  childName,
+          deviceCode: deviceCode,
+          type:       type,
+          message:    msgBody.isNotEmpty ? msgBody : 'Tap to view details',
+        );
+        break;
+
+      default:
+        debugPrint('[NotificationService] showFromFcm: unknown type "$type"');
+    }
+
+    debugPrint('[NotificationService] showFromFcm type="$type" '
+        'device="$deviceCode"');
   }
 
   // ── Cancel helpers ────────────────────────────────────────────
@@ -300,7 +374,7 @@ class NotificationService {
   Future<void> cancelAllForDevice(String deviceCode) async {
     await _plugin.cancel(_deviationNotifId(deviceCode));
     await _plugin.cancel(_sosNotifId(deviceCode));
-    for (final type in ['late', 'absent', 'anomaly']) {
+    for (final type in ['late', 'absent', 'anomaly', 'silent']) {
       await _plugin.cancel(_behaviorNotifId(deviceCode, type));
     }
     debugPrint(
@@ -314,23 +388,56 @@ class NotificationService {
 
   // ── Tap handlers ──────────────────────────────────────────────
 
+  // FIX: Parse "type:deviceCode" payload and set pendingNav ValueNotifier
+  // instead of the old pendingDeviceCode static string.
+  // ValueNotifier allows AuthWrapper to react instantly via addListener
+  // regardless of whether the app is foreground, background, or resuming.
   static void _onNotificationTapped(NotificationResponse response) {
-    final deviceCode = response.payload;
-    if (deviceCode != null && deviceCode.isNotEmpty) {
-      pendingDeviceCode = deviceCode;
-      debugPrint(
-          '[NotificationService] Tapped — navigate to $deviceCode');
-    }
+    final payload = response.payload;
+    if (payload == null || payload.isEmpty) return;
+
+    final separatorIndex = payload.indexOf(':');
+    if (separatorIndex == -1) return;
+
+    final type       = payload.substring(0, separatorIndex);
+    final deviceCode = payload.substring(separatorIndex + 1);
+
+    if (deviceCode.isEmpty) return;
+
+    pendingNav.value = PendingNav(deviceCode, type);
+    debugPrint(
+        '[NotificationService] Tapped — type=$type device=$deviceCode');
   }
 }
 
+// ── Pending navigation model ──────────────────────────────────────────────────
+
+/// Holds both deviceCode and type so AuthWrapper can route
+/// to the correct screen when a local notification is tapped.
+class PendingNav {
+  final String deviceCode;
+  final String type;
+  const PendingNav(this.deviceCode, this.type);
+}
+
+// ── Background tap handler ────────────────────────────────────────────────────
+
 // Must be a top-level function for background tap handling.
+// FIX: Now parses "type:deviceCode" payload same as foreground handler.
 @pragma('vm:entry-point')
 void _onBackgroundNotificationTapped(NotificationResponse response) {
-  final deviceCode = response.payload;
-  if (deviceCode != null && deviceCode.isNotEmpty) {
-    NotificationService.pendingDeviceCode = deviceCode;
-    debugPrint(
-        '[NotificationService] Background tap — deviceCode: $deviceCode');
-  }
+  final payload = response.payload;
+  if (payload == null || payload.isEmpty) return;
+
+  final separatorIndex = payload.indexOf(':');
+  if (separatorIndex == -1) return;
+
+  final type       = payload.substring(0, separatorIndex);
+  final deviceCode = payload.substring(separatorIndex + 1);
+
+  if (deviceCode.isEmpty) return;
+
+  NotificationService.pendingNav.value = PendingNav(deviceCode, type);
+  debugPrint(
+      '[NotificationService] Background tap — type=$type device=$deviceCode');
 }

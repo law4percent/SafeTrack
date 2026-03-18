@@ -1,4 +1,4 @@
-// lib/screens/alert_screen.dart
+// lib/screens/alerts_screen.dart
 //
 // Feature 2 — Alert Screen
 // Displays all alerts saved to RTDB:
@@ -60,6 +60,7 @@ class _AlertScreenState extends State<AlertScreen> {
                   _filterChip('late', 'Late', Icons.watch_later_outlined),
                   _filterChip('absent', 'Absent', Icons.person_off_outlined),
                   _filterChip('anomaly', 'Anomaly', Icons.warning_amber_outlined),
+                  _filterChip('silent', 'Device Silent', Icons.sensors_off_outlined),
                 ],
               ),
             ),
@@ -384,6 +385,8 @@ class _AlertCard extends StatelessWidget {
         return _AlertConfig(Icons.person_off, Colors.purple.shade600, 'Absent');
       case 'anomaly':
         return _AlertConfig(Icons.warning_amber, Colors.deepOrange.shade600, 'Anomaly');
+      case 'silent':
+        return _AlertConfig(Icons.sensors_off, Colors.deepPurple, 'Device Silent');
       default:
         return _AlertConfig(Icons.notifications, Colors.blueGrey, 'Alert');
     }

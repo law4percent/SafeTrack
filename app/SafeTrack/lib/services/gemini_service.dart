@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'dart:async';
 
 // =============================================================
 // HARDCODED RAG KNOWLEDGE BASE
@@ -405,6 +406,73 @@ class GeminiService {
   int _daysInMonth(int year, int month) =>
       DateTime(year, month + 1, 0).day;
 
+  // ── Reverse geocoding (Nominatim / OpenStreetMap) ─────────────
+  // Converts lat/lng to a human-readable place name.
+  // Uses Nominatim — same provider as the map tiles, no API key needed.
+  // Returns a formatted string like:
+  //   "near Osmeña Blvd, Cebu City, Cebu"
+  // Falls back to raw coordinates if the request fails or times out.
+  Future<String> _reverseGeocode(double lat, double lng) async {
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse'
+        '?lat=$lat&lon=$lng&format=json&addressdetails=1',
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          // Nominatim requires a User-Agent header
+          'User-Agent': 'SafeTrack/1.0 (thesis project)',
+          'Accept-Language': 'en',
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode != 200) {
+        return 'Lat $lat, Lng $lng';
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final address = data['address'] as Map<String, dynamic>?;
+
+      if (address == null) {
+        return 'Lat $lat, Lng $lng';
+      }
+
+      // Build a clean readable string from address components
+      // Priority: road/amenity → suburb/village → city/town → state
+      final parts = <String>[];
+
+      final road     = address['road']            as String?;
+      final amenity  = address['amenity']         as String?;
+      final suburb   = address['suburb']          as String?;
+      final village  = address['village']         as String?;
+      final town     = address['town']            as String?;
+      final city     = address['city']            as String?;
+      final state    = address['state']           as String?;
+
+      if (amenity != null)        parts.add(amenity);
+      else if (road != null)      parts.add(road);
+
+      if (suburb != null)         parts.add(suburb);
+      else if (village != null)   parts.add(village);
+
+      if (city != null)           parts.add(city);
+      else if (town != null)      parts.add(town);
+
+      if (state != null)          parts.add(state);
+
+      if (parts.isEmpty) {
+        return 'Lat $lat, Lng $lng';
+      }
+
+      return 'near ${parts.join(', ')}';
+    } on Exception catch (e) {
+      debugPrint('[GeminiService] Reverse geocode failed: $e');
+      return 'Lat $lat, Lng $lng'; // fallback to raw coords
+    }
+  }
+
   // ── Safe int cast ────────────────────────────────────────────
   int _toInt(dynamic val) {
     if (val == null) return 0;
@@ -563,7 +631,9 @@ class GeminiService {
               final llLat = (ll['latitude']  as num?)?.toDouble() ?? 0;
               final llLng = (ll['longitude'] as num?)?.toDouble() ?? 0;
               if (llLat != 0 && llLng != 0) {
-                buf.writeln('- Last known position: Lat $llLat, Lng $llLng');
+                final llPlace = await _reverseGeocode(llLat, llLng);
+                buf.writeln('- Last known position: $llPlace');
+                buf.writeln('  • Coordinates: Lat $llLat, Lng $llLng');
               }
             }
           } else {
@@ -672,8 +742,10 @@ class GeminiService {
                   buf.writeln(
                       '- GPS: Device has not reported a valid location yet');
                 } else {
-                  buf.writeln(
-                      '- Most recent location: Lat $lat, Lng $lng');
+                  // Reverse geocode current location into human-readable place name
+                  final placeName = await _reverseGeocode(lat, lng);
+                  buf.writeln('- Most recent location: $placeName');
+                  buf.writeln('  • Coordinates: Lat $lat, Lng $lng');
                   buf.writeln('  • Recorded: $tsFormatted');
                   buf.writeln('  • Fix type: $locationTypeDesc');
                   buf.writeln('  • Accuracy: approx. ${acc}m');
