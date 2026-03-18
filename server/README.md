@@ -134,6 +134,14 @@ Firebase FCM → Parent's Phone → Flutter App
 
 ## App UI Screenshots
 
+### Authentication
+> The Login and Sign up page only for parents
+
+<!-- Replace image paths with your actual screenshots -->
+![Authentication - Login and Sign Up](images/authentication_screens.png)
+
+---
+
 ### Dashboard
 > Shows all linked children with online status, battery level, GPS status, and SOS indicator.
 
@@ -210,7 +218,7 @@ Firebase FCM → Parent's Phone → Flutter App
 
 ### 🖨️ STL File (3D Print Enclosure)
 
-**[⬇️ Download STL File (Google Drive)](https://drive.google.com/your-stl-link-here)**
+**[⬇️ Download STL File (Google Drive)](https://drive.google.com/drive/folders/1EYjyFP11LW7h_nx68BAPlHHjCYp_BCfe?usp=sharing)**
 
 ---
 
