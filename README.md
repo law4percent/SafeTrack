@@ -199,7 +199,7 @@ Under the server-primary architecture, the app is the **displayer only**:
 - Hosts the AI assistant
 
 **Screens:**
-- **Dashboard** — all linked children, battery, GPS, SOS status
+- **![Dashboard*](images/dashboard_screen.png)* — all linked children, battery, GPS, SOS status
 - **Live Location** — real-time OpenStreetMap with route overlay
 - **My Children** — device management, school schedule, route access
 - **Route Registration** — tap-to-drop waypoint editor with threshold slider
