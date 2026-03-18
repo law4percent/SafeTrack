@@ -351,11 +351,11 @@ Firebase Realtime Database
 
 | Dashboard | Live Location | My Children |
 |---|---|---|
-| ![Dashboard](docs/images/ui_dashboard.png) | ![Live Location](docs/images/ui_live_location.jpg) | ![My Children](docs/images/ui_my_children.jpg) |
+| ![Dashboard](docs/images/ui_dashboard.jpg) | ![Live Location](docs/images/ui_live_location.jpg) | ![My Children](docs/images/ui_my_children.jpg) |
 
 | Route Registration | Alerts | AI Assistant |
 |---|---|---|
-| ![Routes](docs/images/ui_route_registration.png) | ![Alerts](docs/images/ui_alerts.jpg) | ![AI](docs/images/ui_ai_assistant.jpg) |
+| ![Routes](docs/images/ui_route_registration.jpg) | ![Alerts](docs/images/ui_alerts.jpg) | ![AI](docs/images/ui_ai_assistant.jpg) |
 
 | Login | Sign Up | Settings |
 |---|---|---|
