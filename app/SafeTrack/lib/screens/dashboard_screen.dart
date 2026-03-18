@@ -54,19 +54,19 @@ class DashboardScreenState extends State<DashboardScreen> {
           mainAxisSize: MainAxisSize.max,
           children: [
             Image.asset(
-              'assets/images/my_app_logo.png',
-              height: MediaQuery.of(context).size.width * 0.20,
-              width: MediaQuery.of(context).size.width * 0.20,
+              'assets/icon/app_icon_without_bg.png',
+              height: MediaQuery.of(context).size.width * 0.09,
+              width: MediaQuery.of(context).size.width * 0.09,
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return Icon(
-                  Icons.school,
+                  Icons.security,
                   color: Colors.white,
                   size: MediaQuery.of(context).size.width * 0.10,
                 );
               },
             ),
-            SizedBox(width: MediaQuery.of(context).size.width * 0.02),
+            SizedBox(width: MediaQuery.of(context).size.width * 0.01),
             Text(
               'SafeTrack - Student Safety',
               style: TextStyle(
