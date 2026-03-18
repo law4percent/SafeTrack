@@ -1,6 +1,6 @@
 # SafeTrack — ESP32-C3 Super Mini Tracker Firmware
 
-> **Version:** 4.2 | **Platform:** ESP32-C3 Super Mini | **Framework:** Arduino (C/C++)
+> **Version:** 4.4 (GPRS-resilient Build) | **Platform:** ESP32-C3 Super Mini | **Framework:** Arduino (C/C++)
 
 ---
 
@@ -13,7 +13,7 @@ This directory contains the firmware for the SafeTrack IoT tracker device — th
 - Detecting SOS button press events
 - Transmitting all data to **Firebase Realtime Database** via 4G LTE cellular
 
-The device operates fully autonomously. Once powered on and authorized, it requires no interaction — it silently sends location and status updates every 30 seconds until powered off.
+The device operates fully autonomously. Once powered on and authorized, it requires no interaction — it silently sends location and status updates every 2 minutes until powered off.
 
 ---
 
@@ -36,8 +36,8 @@ The device operates fully autonomously. Once powered on and authorized, it requi
 
 | Signal | GPIO | Direction | Connected To |
 |---|---|---|---|
-| UART RX | GPIO 20 | Input | SIM7600E-H1C TX |
-| UART TX | GPIO 21 | Output | SIM7600E-H1C RX |
+| UART RX | GPIO 4 | Input | SIM7600E-H1C TX |
+| UART TX | GPIO 5 | Output | SIM7600E-H1C RX |
 | I2C SDA | GPIO 6 | Bidirectional | MAX17043 SDA |
 | I2C SCL | GPIO 7 | Output | MAX17043 SCL |
 | SOS Button | GPIO 2 | Input (PULLUP) | Push button → GND |
@@ -55,13 +55,14 @@ The device operates fully autonomously. Once powered on and authorized, it requi
 1. Initialize Serial Monitor at 115200 baud
 2. Configure GPIO pins (LED outputs, SOS button input with pull-up)
 3. Initialize I2C bus and MAX17043 fuel gauge (quick-start command)
-4. Start UART1 for SIM7600E-H1C communication (RX=20, TX=21)
+4. Start UART1 for SIM7600E-H1C communication (RX=4, TX=5)
 5. Restart modem via TinyGSM (`modem.restart()`)
-6. Enable GPS (`modem.enableGPS()`)
-7. Connect to Globe 4G network via GPRS (APN: `http.globe.com.ph`)
-8. **Authenticate device** — read `realDevices` node from Firebase, match `DEVICE_CODE` constant to `deviceCode` field, extract `actionOwnerID` as `userUid`
-9. If authorized: 3 green blinks → enter main loop
-10. If not authorized: continuous red blink → halt
+6. Connect to Globe 4G network via GPRS (APN: `http.globe.com.ph`)
+7. **Authenticate device** — read `realDevices` node from Firebase, match `DEVICE_CODE` constant to `deviceCode` field, extract `actionOwnerID` as `userUid`
+8. If authorized: 3 green blinks → enable GPS and wait up to 60 seconds for a first fix (red blinks while waiting)
+9. If GPS fix acquired: log coordinates and enter main loop
+10. If no fix within 60 seconds: log warning and enter main loop anyway (will retry each update cycle)
+11. If not authorized: continuous red blink → halt
 
 ### Main Loop (`loop()`)
 
@@ -70,13 +71,14 @@ The loop runs approximately every 10ms. Two things happen:
 **Every iteration (~10ms):**
 - `handleSOS()` is called to poll the SOS button state non-blocking
 
-**Every 30 seconds:**
+**Every 2 minutes:**
 - Read battery percentage from MAX17043
 - Reconnect GPRS if dropped
-- Read GPS via `modem.getGPS()` (TinyGSM wraps `AT+CGPSINFO`)
+- Attempt to resend any queued SOS (see SOS Retry Queue below)
+- Read GPS via `modem.getGPS()` with up to 3 attempts, 2 seconds apart
 - Call `sendLocationLog()` — POST to `deviceLogs` (push entry)
 - Call `sendDeviceStatus()` — PATCH to `linkedDevices/.../deviceStatus`
-- Blink green LED ×2
+- Blink green LED ×2 on success
 
 ### SOS Detection
 
@@ -86,6 +88,12 @@ The SOS handler uses a **non-blocking hold detection** pattern:
 - When hold threshold is reached: `sosActive = true`, LED flashes Morse S·O·S, and Firebase is updated **immediately** (out-of-cycle push)
 - SOS **auto-cancels after 60 seconds** without any button interaction
 - While SOS is active, the red LED blinks at 1Hz to provide visual confirmation
+
+### SOS Retry Queue
+
+If a GPRS connection is unavailable when SOS is triggered, the SOS payload is saved to a `SosPending` struct in memory and retried at the start of each subsequent update cycle. The retry window is **5 minutes (300,000ms)**. If GPRS is not restored within that window, the queued SOS is discarded and a warning is logged to Serial.
+
+This ensures SOS alerts are delivered even if the network drops momentarily at the moment of activation.
 
 ---
 
@@ -106,9 +114,13 @@ Written via HTTP **POST** — Firebase generates a unique push ID for each entry
   "accuracy": 5.0,
   "locationType": "gps",
   "sos": false,
-  "timestamp": { ".sv": "timestamp" }
+  "batteryLevel": 87,
+  "timestamp": { ".sv": "timestamp" },
+  "lastUpdate": { ".sv": "timestamp" }
 }
 ```
+
+> **Note:** `batteryLevel` and `lastUpdate` are now included in every `deviceLogs` entry, in addition to `deviceStatus`.
 
 ### 2. `linkedDevices/{userUid}/devices/{deviceCode}/deviceStatus`
 
@@ -177,7 +189,13 @@ The APN is pre-configured for Globe Philippines:
 ```cpp
 const char APN[] = "http.globe.com.ph";
 ```
-Change this if using a different carrier.
+Change this if using a different carrier. Common APNs:
+
+| Carrier | APN |
+|---|---|
+| Globe | `http.globe.com.ph` |
+| Smart | `internet` |
+| DITO | `internet.dito.ph` |
 
 ---
 
@@ -186,8 +204,9 @@ Change this if using a different carrier.
 | Pattern | Meaning |
 |---|---|
 | 🔴 Red continuous blink on startup | Not authorized — device not registered in Firebase |
+| 🔴 Red blink every 3s (after auth) | Waiting for GPS fix at startup |
 | 🟢 Green ×3 blink on startup | Authorized — ready to track |
-| 🟢 Green ×2 blink every 30s | Update cycle successful |
+| 🟢 Green ×2 blink every 2 min | Update cycle successful |
 | 🔴 Red ×3 blink | `deviceLogs` POST failed |
 | 🔴 Red ×2 blink | `deviceStatus` PATCH failed |
 | 🔴 Red 1Hz slow blink | SOS active (60-second window) |
@@ -199,16 +218,18 @@ Change this if using a different carrier.
 
 The SIM7600E-H1C has a built-in GPS receiver. TinyGSM wraps the `AT+CGPSINFO` command into `modem.getGPS()`. The firmware:
 
-1. Calls `modem.getGPS(&lat, &lon, &alt, &spd, &hdg)`
-2. Validates the result — if `lat == 0 && lon == 0`, the fix is invalid
-3. If valid: updates current and cached (`lastLat`, `lastLon`, `lastAlt`) values
-4. If invalid: uses cached values and sets `locationType = "cached"` with `accuracy = 50.0`
+1. **At startup:** waits up to 60 seconds for an initial GPS fix, blinking red every 3 seconds while waiting
+2. **Each update cycle:** calls `modem.getGPS(&lat, &lon, &alt, &spd, &hdg)` up to **3 times** with a 2-second delay between attempts
+3. Validates the result — if `lat == 0 && lon == 0`, the fix is invalid
+4. If valid: updates current and cached (`lastLat`, `lastLon`, `lastAlt`) values
+5. If invalid after all attempts: uses cached values and sets `locationType = "cached"` with `accuracy = 50.0`
 
 **GPS cold start** (device just powered on outdoors) typically takes 30–90 seconds to get a first fix. Keep the device in open sky for best results.
 
 **GPS accuracy field** in the payload is estimated:
 - `5.0m` when GPS fix is valid
-- `50.0m` when using cached location
+- `30.0m` when using cached location in an SOS retry payload
+- `50.0m` when using cached location in a regular update
 
 ---
 
@@ -231,7 +252,8 @@ With a 2000mAh battery and MT3608 boost efficiency ~85%:
 ## Known Limitations
 
 - **No RTC clock** — device timestamp relies on Firebase server-side `{".sv":"timestamp"}`. The device itself does not know the current time.
-- **No offline buffering** — if GPRS drops, the current update cycle is skipped. Location data is not queued for later delivery.
+- **No persistent offline buffering** — only the most recent SOS event is queued in memory for retry. If the device is power-cycled while a SOS is queued, it is lost. Regular location updates that fail while GPRS is down are not retried.
+- **SOS retry TTL** — queued SOS alerts are discarded after 5 minutes if GPRS is not restored.
 - **GPS indoors** — satellite signal may not penetrate thick concrete. Cached location is used as fallback.
 - **SOS blocks for ~2.75s** — the Morse LED pattern in `flashSOS()` uses `delay()` and blocks the loop. The Firebase push fires immediately after it completes.
 - **String heap fragmentation** — URL construction uses Arduino `String` concatenation. On ESP32-C3 with 400KB SRAM this is not a practical problem but could cause instability after very long runtimes (12+ hours continuous).
