@@ -452,18 +452,6 @@ SafeTrack/
 
 ---
 
-## Thesis Information
-
-| Field | Detail |
-|---|---|
-| Institution | Cebu Technological University – Danao Campus |
-| Program | Bachelor of Science in Computer Engineering |
-| Developers | Elyza Camille Good, Jemarie Mae B. Samontanez, Jonnamaye A. Agting |
-| Timezone | PHT (UTC+8, Asia/Manila) |
-| Target users | Parents of elementary school students, Philippines |
-
----
-
 ## Acknowledgments
 
 - Google Firebase for real-time cloud infrastructure and FCM
