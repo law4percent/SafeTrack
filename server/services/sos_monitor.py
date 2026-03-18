@@ -52,12 +52,19 @@ def _is_enabled(val) -> bool:
     return str(val).lower() == 'true'
 
 
-def _get_fcm_token(uid: str) -> str | None:
-    """Fetch FCM token from users/{uid}/fcmToken."""
+def _get_fcm_token(uid: str) -> str:
+    """
+    Fetch FCM token from users/{uid}/fcmToken.
+    Raises RuntimeError if missing so main.py can log it visibly.
+    Token is saved by the app on login via authStateChanges() listener.
+    """
     snap = rtdb.reference(f"{PATH_USERS}/{uid}/fcmToken").get()
     if snap and isinstance(snap, str) and snap.strip():
         return snap.strip()
-    return None
+    raise RuntimeError(
+        f"[SosMonitor] FCM token missing for uid={uid} — "
+        f"push not sent. Parent must open app once to register token."
+    )
 
 
 def _save_alert(
@@ -79,8 +86,8 @@ def _save_alert(
     })
 
     # Send FCM push to parent
-    fcm_token = _get_fcm_token(uid)
-    if fcm_token:
+    try:
+        fcm_token = _get_fcm_token(uid)
         send_alert(
             fcm_token   = fcm_token,
             alert_type  = "sos",
@@ -88,6 +95,8 @@ def _save_alert(
             device_code = device_code,
             message     = message,
         )
+    except RuntimeError:
+        raise
 
 
 # ── Per-device SOS listener ───────────────────────────────────────────────────

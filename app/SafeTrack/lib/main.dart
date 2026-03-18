@@ -9,8 +9,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
-import 'services/path_monitor_service.dart';
-import 'services/background_monitor_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/live_location_screen.dart';
@@ -18,7 +16,7 @@ import 'screens/alerts_screen.dart';
 
 // ── FCM background handler ────────────────────────────────────────────────────
 // Must be top-level and annotated — runs in a separate isolate.
-// The visible notification in background/killed state is handled by the
+// Visible notification in background/killed state is handled by the
 // FCM notification payload sent from the server directly.
 @pragma('vm:entry-point')
 Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
@@ -40,30 +38,14 @@ void main() async {
   await NotificationService().initialize();
   await NotificationService().requestPermissions();
 
-  // ── Background monitor (workmanager) ─────────────────────────
-  await BackgroundMonitorService().initialize();
-  await BackgroundMonitorService().startPeriodicMonitoring();
-
   // ── FCM setup ────────────────────────────────────────────────
+  // BackgroundMonitorService and PathMonitorService are intentionally
+  // NOT started here. The Python server is the sole monitor and informer.
+  // The app is the displayer only.
   FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
   await _initializeFcm();
 
-  // ── Foreground path monitor ───────────────────────────────────
-  // Starts only if a user is already signed in on cold start
-  final user = FirebaseAuth.instance.currentUser;
-  if (user != null) {
-    _startForegroundMonitor();
-  }
-
   runApp(const MyApp());
-}
-
-void _startForegroundMonitor() {
-  PathMonitorService().start(
-    onDeviationDetected: (event) {
-      NotificationService().showDeviationAlert(event);
-    },
-  );
 }
 
 void _initializeRealtimeDatabase() {
@@ -90,11 +72,22 @@ Future<void> _initializeFcm() async {
     provisional:   false,
   );
 
-  // Save token on startup if user is already signed in
-  final user = FirebaseAuth.instance.currentUser;
-  if (user != null) {
-    await _saveFcmToken(user.uid);
-  }
+  // FIX: Use authStateChanges() instead of currentUser to save FCM token.
+  //
+  // The old approach read FirebaseAuth.instance.currentUser directly in
+  // main() which runs immediately on cold start. Firebase Auth restores
+  // the session asynchronously — currentUser is null for a brief moment
+  // even when the user is logged in, causing the token save to be silently
+  // skipped. This was why users/{uid}/fcmToken was never written to RTDB.
+  //
+  // authStateChanges() fires as soon as the auth session is restored,
+  // guaranteed to have a non-null user. It also fires on every subsequent
+  // login — covering fresh installs, token refresh, and re-logins.
+  FirebaseAuth.instance.authStateChanges().listen((user) async {
+    if (user != null) {
+      await _saveFcmToken(user.uid);
+    }
+  });
 
   // Re-save whenever FCM rotates the token
   messaging.onTokenRefresh.listen((newToken) async {
@@ -104,9 +97,9 @@ Future<void> _initializeFcm() async {
     }
   });
 
-  // Foreground FCM message → show local notification
-  // SOS is skipped here — app's own RTDB listener in dashboard_screen.dart
-  // already shows the local notification immediately when sos: true fires.
+  // Foreground FCM message → show local notification.
+  // SOS is skipped — dashboard_screen.dart RTDB listener handles it
+  // immediately and shows the local notification directly.
   // Showing it again from FCM would give the parent a duplicate alert.
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     final type = message.data['type'] as String? ?? '';
@@ -119,12 +112,19 @@ Future<void> _initializeFcm() async {
 }
 
 Future<void> _saveFcmToken(String uid) async {
-  final token = await FirebaseMessaging.instance.getToken();
-  if (token == null) return;
-  await FirebaseDatabase.instance
-      .ref('users/$uid/fcmToken')
-      .set(token);
-  debugPrint('[FCM] Token saved for uid=$uid');
+  try {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null) {
+      debugPrint('[FCM] Token is null — skipping save');
+      return;
+    }
+    await FirebaseDatabase.instance
+        .ref('users/$uid/fcmToken')
+        .set(token);
+    debugPrint('[FCM] ✅ Token saved for uid=$uid');
+  } catch (e) {
+    debugPrint('[FCM] ❌ Failed to save token: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -160,10 +160,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
 
-    // FIX: Listen to local notification taps via ValueNotifier.
+    // Listen to local notification taps via ValueNotifier.
     // Fires instantly whether the app is foreground, background, or resuming.
-    // The old pendingDeviceCode static string only worked on cold start
-    // because it relied on initState — which never re-fires for a mounted widget.
     NotificationService.pendingNav.addListener(_onPendingNavChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -181,20 +179,17 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   void dispose() {
-    // Remove listener to prevent memory leak when AuthWrapper is disposed
     NotificationService.pendingNav.removeListener(_onPendingNavChanged);
     super.dispose();
   }
 
-  // ── Local notification tap handler (ValueNotifier) ────────────
+  // ── Local notification tap — ValueNotifier listener ───────────
 
-  // FIX: Called instantly whenever pendingNav changes — covers all app states.
   void _onPendingNavChanged() {
     final pending = NotificationService.pendingNav.value;
     if (pending == null) return;
     if (!mounted) return;
 
-    // Consume immediately to prevent double navigation
     NotificationService.pendingNav.value = null;
 
     final user = FirebaseAuth.instance.currentUser;
@@ -205,13 +200,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   // ── Killed-state local notification tap ───────────────────────
 
-  // Handles the case where the app was fully killed when the notification
-  // was tapped. pendingNav may already be set before the listener attached.
   void _handlePendingNotification() {
     final pending = NotificationService.pendingNav.value;
     if (pending == null) return;
 
-    NotificationService.pendingNav.value = null; // consume
+    NotificationService.pendingNav.value = null;
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -231,10 +224,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
     _navigateForType(type);
   }
 
-  // ── Shared navigation by type ─────────────────────────────────
+  // ── Shared navigation by alert type ──────────────────────────
 
-  // Single routing function used by both local notification taps
-  // and FCM message taps — ensures consistent behavior across all paths.
   void _navigateForType(String type) {
     switch (type) {
       case 'sos':
@@ -270,16 +261,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (snapshot.hasData && snapshot.data != null) {
-          // Start foreground monitor when user logs in
-          if (!PathMonitorService().isRunning) {
-            _startForegroundMonitor();
-          }
+          // Server is the sole monitor — do NOT start PathMonitorService
+          // or BackgroundMonitorService here. The Python server handles
+          // all detection and sends FCM pushes to this device.
           return const DashboardScreen();
         }
 
-        // Stop monitor and background tasks on sign out
-        PathMonitorService().stop();
-        BackgroundMonitorService().stopPeriodicMonitoring();
+        // Sign out — no monitoring to stop since server handles everything.
+        // SOS listener in dashboard_screen.dart cleans itself up via dispose().
         return const LoginScreen();
       },
     );

@@ -100,12 +100,19 @@ def _is_within_school_hours(time_in_hm: tuple, time_out_hm: tuple) -> bool:
     return in_mins <= now_mins <= out_mins
 
 
-def _get_fcm_token(uid: str) -> str | None:
-    """Fetch FCM token from users/{uid}/fcmToken."""
+def _get_fcm_token(uid: str) -> str:
+    """
+    Fetch FCM token from users/{uid}/fcmToken.
+    Raises RuntimeError if missing so main.py can log it visibly.
+    Token is saved by the app on login via authStateChanges() listener.
+    """
     snap = rtdb.reference(f"{PATH_USERS}/{uid}/fcmToken").get()
     if snap and isinstance(snap, str) and snap.strip():
         return snap.strip()
-    return None
+    raise RuntimeError(
+        f"[DeviationMonitor] FCM token missing for uid={uid} — "
+        f"push not sent. Parent must open app once to register token."
+    )
 
 
 def _is_cooldown_active(uid: str, device_code: str, route_id: str) -> bool:
@@ -348,8 +355,8 @@ class _DeviceListener:
         )
 
         # Send FCM push
-        fcm_token = _get_fcm_token(self.uid)
-        if fcm_token:
+        try:
+            fcm_token = _get_fcm_token(self.uid)
             send_alert(
                 fcm_token   = fcm_token,
                 alert_type  = "deviation",
@@ -357,6 +364,8 @@ class _DeviceListener:
                 device_code = self.device_code,
                 message     = message,
             )
+        except RuntimeError:
+            raise
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

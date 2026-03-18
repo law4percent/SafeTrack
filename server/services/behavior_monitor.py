@@ -82,12 +82,19 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime('%H:%M')
 
 
-def _get_fcm_token(uid: str) -> str | None:
-    """Fetch FCM token from users/{uid}/fcmToken."""
+def _get_fcm_token(uid: str) -> str:
+    """
+    Fetch FCM token from users/{uid}/fcmToken.
+    Raises RuntimeError if missing so main.py can log it visibly.
+    Token is saved by the app on login via authStateChanges() listener.
+    """
     snap = rtdb.reference(f"{PATH_USERS}/{uid}/fcmToken").get()
     if snap and isinstance(snap, str) and snap.strip():
         return snap.strip()
-    return None
+    raise RuntimeError(
+        f"[BehaviorMonitor] FCM token missing for uid={uid} — "
+        f"push not sent. Parent must open app once to register token."
+    )
 
 
 def _not_yet_fired_today(uid: str, device_code: str, alert_type: str) -> bool:
@@ -156,8 +163,8 @@ def _save_alert(
     })
 
     # Send FCM push
-    fcm_token = _get_fcm_token(uid)
-    if fcm_token:
+    try:
+        fcm_token = _get_fcm_token(uid)
         send_alert(
             fcm_token   = fcm_token,
             alert_type  = alert_type,
@@ -165,6 +172,10 @@ def _save_alert(
             device_code = device_code,
             message     = message,
         )
+    except RuntimeError as e:
+        # Token missing — alert still written to RTDB, only push is skipped.
+        # main.py will log this. Parent will see it in AlertScreen on next open.
+        raise
 
 
 # ── Per-device check ──────────────────────────────────────────────────────────
