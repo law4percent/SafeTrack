@@ -115,6 +115,13 @@ class LoginScreenState extends State<LoginScreen> {
   Widget _buildLogoSection(Size screenSize) {
     return Column(
       children: [
+        Image.asset(
+          'assets/icon/app_icon_without_bg.png',
+          height: _getLogoSize(screenSize.width),
+          width: _getLogoSize(screenSize.width),
+          fit: BoxFit.contain,
+        ),
+        SizedBox(height: _getSmallSpacing(screenSize.height)),
         Text(
           'SafeTrack',
           style: TextStyle(
@@ -123,7 +130,7 @@ class LoginScreenState extends State<LoginScreen> {
             color: Colors.blue,
           ),
         ),
-        SizedBox(height: _getSmallSpacing(screenSize.height)),
+        SizedBox(height: 4),
         Text(
           'Student Safety',
           style: TextStyle(
@@ -133,6 +140,12 @@ class LoginScreenState extends State<LoginScreen> {
         ),
       ],
     );
+  }
+
+  double _getLogoSize(double screenWidth) {
+    if (screenWidth < 350) return 80;
+    if (screenWidth < 600) return 100;
+    return 120;
   }
 
   Widget _buildFormSection(Size screenSize, bool isSmallScreen) {

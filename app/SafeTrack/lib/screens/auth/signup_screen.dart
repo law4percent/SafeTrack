@@ -72,19 +72,50 @@ class SignUpScreenState extends State<SignUpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Create Account')),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: BackButton(color: Colors.blue),
+      ),
       body: Padding(
         padding: EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
           child: ListView(
             children: [
-              Text(
-                'Sign Up',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              Center(
+                child: Image.asset(
+                  'assets/icon/app_icon_without_bg.png',
+                  height: 90,
+                  width: 90,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('Logo load error: $error');
+                    return const Icon(
+                      Icons.shield,
+                      size: 90,
+                      color: Colors.blue,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'SafeTrack',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 30),
+              const SizedBox(height: 4),
+              const Text(
+                'Create Account',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
               
               // Name Field
               TextFormField(
