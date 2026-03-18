@@ -350,16 +350,19 @@ Firebase Realtime Database
 ## App UI Screenshots
 
 | Login | Sign Up | Dashboard |
-|---|---|---|
-| ![Login](docs/images/ui_login.jpg) | ![ign Up](docs/images/ui_signup.jpg) | ![Dashboard](docs/images/ui_dashboard.jpg) |
+|:---:|:---:|:---:|
+| <img src="docs/images/ui_login.jpg" width="200"> | <img src="docs/images/ui_signup.jpg" width="200"> | <img src="docs/images/ui_dashboard.jpg" width="200"> |
+| Login screen with email, password, and forgot password | Create account with name, email, phone, password | Overview of all linked children with status cards |
 
 | Live Location | My Children | Settings |
-|---|---|---|
-| ![Live Location](docs/images/ui_live_location.jpg) | ![My Children](docs/images/ui_my_children.jpg) | ![Settings](docs/images/ui_settings.jpg) |
+|:---:|:---:|:---:|
+| <img src="docs/images/ui_live_location.jpg" width="200"> | <img src="docs/images/ui_my_children.jpg" width="200"> | <img src="docs/images/ui_settings.jpg" width="200"> |
+| Real-time map with route and deviation status | Device management, school schedule, route access | Help Center, User Manual, account management |
 
 | Route Registration | Alerts | AI Assistant |
-|---|---|---|
-| ![Routes](docs/images/ui_route_registration.jpg) | ![Alerts](docs/images/ui_alerts.jpg) | ![AI](docs/images/ui_ai_assistant.jpg) |
+|:---:|:---:|:---:|
+| <img src="docs/images/ui_route_registration.jpg" width="200"> | <img src="docs/images/ui_alerts.jpg" width="200"> | <img src="docs/images/ui_ai_assistant.jpg" width="200"> |
+| Tap-to-drop waypoint editor with deviation threshold | Full alert history with 6 filter chips | Gemini AI chat with real Firebase context |
 
 ---
 
