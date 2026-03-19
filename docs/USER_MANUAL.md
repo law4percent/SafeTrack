@@ -1,6 +1,6 @@
 # SafeTrack User Manual
 
-**Version 2.0**
+**Version 1.0**
 **For Parents of Elementary School Students**
 
 ---

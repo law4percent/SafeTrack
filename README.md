@@ -17,8 +17,8 @@ school premises.
 4. [System Components](#system-components)
 5. [System Architecture](#system-architecture)
 6. [Alert Types](#alert-types)
-7. [Geofencing & Deviation Detection](#geofencing--deviation-detection)
-8. [AI Assistant](#ai-assistant)
+7. [Geofencing & Deviation Detection](#5-geofencing--deviation-detection)
+8. [AI Assistant](#6-ai-assistant)
 9. [Circuit Diagram](#circuit-diagram)
 10. [3D Model](#3d-model)
 11. [App UI Screenshots](#app-ui-screenshots)
@@ -157,7 +157,7 @@ Firebase Realtime Database serves as the cloud backbone, providing:
 ### 3. Python Monitoring Server
 
 The server is the **sole monitor and informer** in the SafeTrack system. It runs
-continuously on the parent's laptop (or any always-on machine) and handles all
+continuously on any always-on machine **(supposedly a VPS/VM)** and handles all
 detection and notification logic independently of the parent's phone state.
 
 **Why a dedicated server instead of Android background tasks:**
@@ -292,7 +292,7 @@ Child carries IoT device (ESP32-C3 + SIM7600 + GPS)
         ▼
 Firebase Realtime Database
         │
-        ├──► Python Server (always-on, parent's laptop)
+        ├──► Python Server (always-on)
         │         ├── sos_monitor       → writes alertLogs + FCM push
         │         ├── deviation_monitor → writes alertLogs + FCM push
         │         ├── behavior_monitor  → writes alertLogs + FCM push
