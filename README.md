@@ -24,8 +24,7 @@ school premises.
 11. [App UI Screenshots](#app-ui-screenshots)
 12. [Downloads](#downloads)
 13. [Development Environment](#development-environment)
-14. [Repository Structure](#repository-structure)
-15. [Acknowledgments](#acknowledgments)
+14. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -396,59 +395,6 @@ Firebase Realtime Database
 | Notifications | Firebase Cloud Messaging (FCM) |
 | AI API | Google Gemini API |
 | Mapping | OpenStreetMap + Nominatim (no API key) |
-
----
-
-## Repository Structure
-
-```
-SafeTrack/
-├── mobile/                          ← Flutter parent application
-│   └── lib/
-│       ├── main.dart
-│       ├── screens/
-│       │   ├── dashboard_screen.dart
-│       │   ├── live_location_screen.dart
-│       │   ├── my_children_screen.dart
-│       │   ├── route_registration_screen.dart
-│       │   ├── alerts_screen.dart
-│       │   ├── ask_ai_screen.dart
-│       │   ├── settings_screen.dart
-│       │   └── auth/
-│       │       ├── login_screen.dart
-│       │       └── signup_screen.dart
-│       └── services/
-│           ├── auth_service.dart
-│           ├── notification_service.dart
-│           ├── gemini_service.dart
-│           ├── haversine_service.dart
-│           ├── path_monitor_service.dart
-│           ├── behavior_monitor_service.dart
-│           └── background_monitor_service.dart
-├── server/                          ← Python monitoring server
-│   ├── main.py
-│   ├── config.py
-│   ├── requirements.txt
-│   ├── serviceAccountKey.json       ← gitignored
-│   ├── services/
-│   │   ├── logger.py
-│   │   ├── sos_monitor.py
-│   │   ├── deviation_monitor.py
-│   │   ├── behavior_monitor.py
-│   │   └── silence_monitor.py
-│   └── utils/
-│       ├── haversine.py
-│       └── fcm_sender.py
-├── firmware/                        ← ESP32-C3 Arduino firmware
-│   └── safetrack_firmware.ino
-└── docs/
-    ├── images/                      ← circuit diagram, 3D renders, screenshots
-    ├── USER_MANUAL.md
-    ├── NOTIF_TYPES.md
-    ├── OFFLINE_NOTIFICATIONS.md
-    ├── PROS_CONS.md
-    └── GITHUB_PR.md
-```
 
 ---
 
