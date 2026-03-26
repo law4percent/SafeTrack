@@ -10,6 +10,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'package:excel/excel.dart' hide Border;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 class AlertScreen extends StatefulWidget {
   const AlertScreen({super.key});
@@ -37,6 +41,11 @@ class _AlertScreenState extends State<AlertScreen> {
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download_outlined),
+            tooltip: 'Export to Excel',
+            onPressed: () => _exportAlerts(user.uid),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep_outlined),
             tooltip: 'Clear all alerts',
@@ -217,6 +226,312 @@ class _AlertScreenState extends State<AlertScreen> {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Export to Excel ───────────────────────────────────────────
+  Future<void> _exportAlerts(String userId) async {
+    final result = await _showAlertExportDialog(userId);
+    if (result == null) return;
+
+    final fromMs      = result['from']       as int;
+    final toMs        = result['to']         as int;
+    final deviceFilter = result['device']    as String; // 'all' or deviceCode
+    final typeFilter  = result['type']       as String; // 'all' or type string
+
+    // Re-read current alert data from what's already streamed
+    final snapshot = await FirebaseDatabase.instance
+        .ref('alertLogs')
+        .child(userId)
+        .get();
+
+    if (!snapshot.exists || snapshot.value == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No alert data to export')),
+      );
+      return;
+    }
+
+    final filtered = <_AlertEntry>[];
+    final raw = snapshot.value as Map<dynamic, dynamic>;
+
+    for (final deviceEntry in raw.entries) {
+      final deviceCode = deviceEntry.key.toString();
+      if (deviceFilter != 'all' && deviceCode != deviceFilter) continue;
+      if (deviceEntry.value is! Map) continue;
+
+      final logs = deviceEntry.value as Map<dynamic, dynamic>;
+      for (final logEntry in logs.entries) {
+        if (logEntry.value is! Map) continue;
+        final data = logEntry.value as Map<dynamic, dynamic>;
+        final type = data['type']?.toString() ?? 'unknown';
+        if (typeFilter != 'all' && type != typeFilter) continue;
+
+        final ts = (data['timestamp'] as num?)?.toInt() ?? 0;
+        if (ts < fromMs || ts > toMs) continue;
+
+        filtered.add(_AlertEntry(
+          pushId:         logEntry.key.toString(),
+          deviceCode:     deviceCode,
+          type:           type,
+          childName:      data['childName']?.toString() ?? 'Unknown',
+          message:        data['message']?.toString() ?? '',
+          timestamp:      ts,
+          distanceMeters: (data['distanceMeters'] as num?)?.toDouble(),
+          routeName:      data['routeName']?.toString(),
+        ));
+      }
+    }
+
+    if (filtered.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No alerts found for selected filters')),
+      );
+      return;
+    }
+
+    // Sort newest first
+    filtered.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    // Build Excel
+    final excel = Excel.createExcel();
+    final sheet = excel['Alerts'];
+
+    // Header
+    sheet.appendRow([
+      TextCellValue('No.'),
+      TextCellValue('Alert Type'),
+      TextCellValue('Child Name'),
+      TextCellValue('Device Code'),
+      TextCellValue('Date'),
+      TextCellValue('Time'),
+      TextCellValue('Message'),
+      TextCellValue('Distance (m)'),
+      TextCellValue('Route Name'),
+    ]);
+
+    // Rows
+    int rowNum = 1;
+    for (final a in filtered) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(a.timestamp);
+      sheet.appendRow([
+        IntCellValue(rowNum++),
+        TextCellValue(a.type.toUpperCase()),
+        TextCellValue(a.childName),
+        TextCellValue(a.deviceCode),
+        TextCellValue(DateFormat('MMM dd, yyyy').format(dt)),
+        TextCellValue(DateFormat('h:mm a').format(dt)),
+        TextCellValue(a.message),
+        a.distanceMeters != null
+            ? DoubleCellValue(a.distanceMeters!)
+            : TextCellValue('—'),
+        TextCellValue(a.routeName ?? '—'),
+      ]);
+    }
+
+    // Save & share
+    final bytes = excel.encode()!;
+    final dir   = await getTemporaryDirectory();
+    final now   = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+    final file  = File('${dir.path}/safetrack_alerts_$now.xlsx');
+    await file.writeAsBytes(bytes);
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      subject: 'SafeTrack Alerts Export',
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showAlertExportDialog(String userId) async {
+    DateTime fromDate = DateTime.now().subtract(const Duration(days: 7));
+    DateTime toDate   = DateTime.now();
+    String selectedDevice = 'all';
+    String selectedType   = 'all';
+
+    // Load available devices from alertLogs
+    final snap = await FirebaseDatabase.instance
+        .ref('alertLogs')
+        .child(userId)
+        .get();
+
+    final deviceCodes = <String>['all'];
+    if (snap.exists && snap.value != null) {
+      final raw = snap.value as Map<dynamic, dynamic>;
+      deviceCodes.addAll(raw.keys.map((k) => k.toString()));
+    }
+
+    final typeOptions = [
+      'all', 'sos', 'deviation', 'late', 'absent', 'anomaly', 'silent'
+    ];
+
+    if (!mounted) return null;
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.file_download, color: Colors.red.shade700),
+              const SizedBox(width: 8),
+              const Text('Export Alerts'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // ── Date Range ──────────────────────────────
+                Text('Date Range',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                        fontSize: 12)),
+                const SizedBox(height: 6),
+
+                // FROM
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.calendar_today,
+                      color: Colors.red.shade700, size: 20),
+                  title: const Text('From', style: TextStyle(fontSize: 13)),
+                  subtitle: Text(
+                    DateFormat('MMM dd, yyyy  h:mm a').format(fromDate),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: ctx,
+                      initialDate: fromDate,
+                      firstDate: DateTime(2025),
+                      lastDate: DateTime.now(),
+                    );
+                    if (d == null) return;
+                    final t = await showTimePicker(
+                      context: ctx,
+                      initialTime: TimeOfDay.fromDateTime(fromDate),
+                    );
+                    if (t == null) return;
+                    setS(() => fromDate = DateTime(
+                        d.year, d.month, d.day, t.hour, t.minute));
+                  },
+                ),
+
+                // TO
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.calendar_today,
+                      color: Colors.green, size: 20),
+                  title: const Text('To', style: TextStyle(fontSize: 13)),
+                  subtitle: Text(
+                    DateFormat('MMM dd, yyyy  h:mm a').format(toDate),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: ctx,
+                      initialDate: toDate,
+                      firstDate: DateTime(2025),
+                      lastDate: DateTime.now()
+                          .add(const Duration(days: 1)),
+                    );
+                    if (d == null) return;
+                    final t = await showTimePicker(
+                      context: ctx,
+                      initialTime: TimeOfDay.fromDateTime(toDate),
+                    );
+                    if (t == null) return;
+                    setS(() => toDate = DateTime(
+                        d.year, d.month, d.day, t.hour, t.minute));
+                  },
+                ),
+
+                const Divider(height: 20),
+
+                // ── Device Filter ───────────────────────────
+                Text('Device',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                        fontSize: 12)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedDevice,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                  ),
+                  items: deviceCodes.map((d) => DropdownMenuItem(
+                    value: d,
+                    child: Text(d == 'all' ? 'All Devices' : d,
+                        style: const TextStyle(fontSize: 13)),
+                  )).toList(),
+                  onChanged: (v) => setS(() => selectedDevice = v!),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Alert Type Filter ───────────────────────
+                Text('Alert Type',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                        fontSize: 12)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedType,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                  ),
+                  items: typeOptions.map((t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(
+                      t == 'all' ? 'All Types' : t.toUpperCase(),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  )).toList(),
+                  onChanged: (v) => setS(() => selectedType = v!),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.download, size: 16),
+              label: const Text('Export'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(ctx, {
+                'from':   fromDate.millisecondsSinceEpoch,
+                'to':     toDate.millisecondsSinceEpoch,
+                'device': selectedDevice,
+                'type':   selectedType,
+              }),
+            ),
+          ],
+        ),
       ),
     );
   }
