@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  excel: ^4.0.6
+  share_plus: ^10.0.0
   flutter_markdown: ^0.7.0
   flutter_local_notifications: ^18.0.0
   workmanager: ^0.6.0

@@ -1,9 +1,13 @@
 // app/SafeTrack/lib/screens/activity_log_screen.dart
 
+import 'dart:io';
+import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 class ActivityLogScreen extends StatefulWidget {
   final String? deviceCode;
@@ -174,7 +178,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         .child('deviceLogs')
         .child(userId)
         .child(deviceCode)
-        .limitToLast(50)
+        .limitToLast(500)
         .get();
 
     if (logsSnapshot.exists) {
@@ -194,6 +198,174 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   Future<void> _refreshData() async => _loadActivities();
+
+  Future<void> _exportToExcel() async {
+    // Show date/time range picker dialog first
+    final result = await _showExportDialog();
+    if (result == null) return;
+
+    final fromMs = result['from'] as int;
+    final toMs   = result['to']   as int;
+
+    // Filter activities by timestamp range
+    final filtered = _activities.where((a) {
+      final ts = a['lastUpdate'] as int;
+      return ts >= fromMs && ts <= toMs;
+    }).toList();
+
+    if (filtered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No data in selected range')),
+      );
+      return;
+    }
+
+    // Build Excel
+    final excel = Excel.createExcel();
+    final sheet = excel['Activity Log'];
+
+    // Header row
+    sheet.appendRow([
+      TextCellValue('Student Name'),
+      TextCellValue('Device Code'),
+      TextCellValue('Date'),
+      TextCellValue('Time'),
+      TextCellValue('Latitude'),
+      TextCellValue('Longitude'),
+      TextCellValue('Altitude (m)'),
+      TextCellValue('Speed (km/h)'),
+      TextCellValue('Accuracy (m)'),
+      TextCellValue('Location Type'),
+      TextCellValue('Battery (%)'),
+      TextCellValue('SOS'),
+    ]);
+
+    // Data rows
+    for (final a in filtered) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(a['lastUpdate'] as int);
+      final location = a['location'] as Map<String, dynamic>?;
+
+      sheet.appendRow([
+        TextCellValue(a['childName']  as String),
+        TextCellValue(a['deviceCode'] as String),
+        TextCellValue(DateFormat('MMM dd, yyyy').format(dt)),
+        TextCellValue(DateFormat('h:mm a').format(dt)),
+        DoubleCellValue(location?['latitude']  as double? ?? 0.0),
+        DoubleCellValue(location?['longitude'] as double? ?? 0.0),
+        DoubleCellValue(location?['altitude']  as double? ?? 0.0),
+        DoubleCellValue((a['speed']    as num?)?.toDouble() ?? 0.0),
+        DoubleCellValue((a['accuracy'] as num?)?.toDouble() ?? 0.0),
+        TextCellValue(a['locationType'] as String? ?? ''),
+        IntCellValue((a['batteryLevel'] as num?)?.toInt() ?? 0),
+        TextCellValue((a['sos'] as bool? ?? false) ? 'YES' : 'No'),
+      ]);
+    }
+
+    // Save & share
+    final bytes = excel.encode()!;
+    final dir  = await getTemporaryDirectory();
+    final now  = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+    final file = File('${dir.path}/safetrack_log_$now.xlsx');
+    await file.writeAsBytes(bytes);
+
+// Undefined name 'Share'.
+// Try correcting the name to one that is defined, or defining the name.dartundefined_identifier
+// Type: InvalidType
+    await Share.shareXFiles(
+// The method 'XFile' isn't defined for the type '_ActivityLogScreenState'.
+// Try correcting the name to the name of an existing method, or defining a method named 'XFile'.dartundefined_method
+// Type: InvalidType
+      [XFile(file.path)],
+      subject: 'SafeTrack Activity Log',
+    );
+  }
+
+  Future<Map<String, int>?> _showExportDialog() async {
+    DateTime fromDate = DateTime.now().subtract(const Duration(hours: 8));
+    DateTime toDate   = DateTime.now();
+
+    return showDialog<Map<String, int>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: const Text('Export to Excel'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Select date & time range:',
+                  style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 16),
+
+              // FROM
+              ListTile(
+                leading: Icon(Icons.calendar_today, color: Colors.blue[800]),
+                title: const Text('From'),
+                subtitle: Text(
+                  DateFormat('MMM dd, yyyy  h:mm a').format(fromDate)),
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: ctx,
+                    initialDate: fromDate,
+                    firstDate: DateTime(2026),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d == null) return;
+                  final t = await showTimePicker(
+                    context: ctx,
+                    initialTime: TimeOfDay.fromDateTime(fromDate),
+                  );
+                  if (t == null) return;
+                  setS(() => fromDate = DateTime(
+                      d.year, d.month, d.day, t.hour, t.minute));
+                },
+              ),
+
+              // TO
+              ListTile(
+                leading: Icon(Icons.calendar_today, color: Colors.green),
+                title: const Text('To'),
+                subtitle: Text(
+                  DateFormat('MMM dd, yyyy  h:mm a').format(toDate)),
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: ctx,
+                    initialDate: toDate,
+                    firstDate: DateTime(2026),
+                    lastDate: DateTime.now().add(const Duration(days: 1)),
+                  );
+                  if (d == null) return;
+                  final t = await showTimePicker(
+                    context: ctx,
+                    initialTime: TimeOfDay.fromDateTime(toDate),
+                  );
+                  if (t == null) return;
+                  setS(() => toDate = DateTime(
+                      d.year, d.month, d.day, t.hour, t.minute));
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.download),
+              label: const Text('Export'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[800],
+                  foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, {
+                'from': fromDate.millisecondsSinceEpoch,
+                'to':   toDate.millisecondsSinceEpoch,
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   String _formatCoords(double lat, double lng) =>
       '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
@@ -218,6 +390,11 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         backgroundColor: Colors.blue[800],
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download, color: Colors.white),
+            onPressed: _exportToExcel,
+            tooltip: 'Export to Excel',
+          ),
           IconButton(
             icon: Icon(
               _showCachedLogs ? Icons.filter_alt : Icons.filter_alt_off,
