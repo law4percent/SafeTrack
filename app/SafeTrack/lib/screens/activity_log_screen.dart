@@ -281,7 +281,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   Future<Map<String, int>?> _showExportDialog() async {
-    DateTime fromDate = DateTime.now().subtract(const Duration(hours: 8));
+    DateTime fromDate = DateTime(2026, 1, 1, 7, 0);
     DateTime toDate   = DateTime.now();
 
     return showDialog<Map<String, int>>(
@@ -306,7 +306,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                   final d = await showDatePicker(
                     context: ctx,
                     initialDate: fromDate,
-                    firstDate: DateTime(2026),
+                    firstDate: DateTime(2025),
                     lastDate: DateTime.now(),
                   );
                   if (d == null) return;
@@ -330,7 +330,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                   final d = await showDatePicker(
                     context: ctx,
                     initialDate: toDate,
-                    firstDate: DateTime(2026),
+                    firstDate: DateTime(2025),
                     lastDate: DateTime.now().add(const Duration(days: 1)),
                   );
                   if (d == null) return;
