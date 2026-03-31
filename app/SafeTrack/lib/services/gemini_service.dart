@@ -387,6 +387,42 @@ class GeminiService {
               now.millisecondsSinceEpoch];
     }
 
+    // "March 17, 2026" or "March 17 2026" with optional time range
+    final specificDateRx = RegExp(
+        r'(january|february|march|april|may|june|july|august|'
+        r'september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})');
+    final sd = specificDateRx.firstMatch(q);
+    if (sd != null) {
+      final month = _monthIndex(sd.group(1)!);
+      final day   = int.parse(sd.group(2)!);
+      final year  = int.parse(sd.group(3)!);
+
+      int startHour = 0,  startMin = 0;
+      int endHour   = 23, endMin   = 59;
+
+      final timeRangeRx = RegExp(
+          r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-)\s*'
+          r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?');
+      final tr = timeRangeRx.firstMatch(q);
+      if (tr != null) {
+        startHour = int.parse(tr.group(1)!);
+        startMin  = int.tryParse(tr.group(2) ?? '0') ?? 0;
+        endHour   = int.parse(tr.group(4)!);
+        endMin    = int.tryParse(tr.group(5) ?? '0') ?? 0;
+
+        final startAmPm = tr.group(3)?.toLowerCase();
+        final endAmPm   = tr.group(6)?.toLowerCase();
+        if (startAmPm == 'pm' && startHour != 12) startHour += 12;
+        if (startAmPm == 'am' && startHour == 12) startHour = 0;
+        if (endAmPm   == 'pm' && endHour   != 12) endHour   += 12;
+        if (endAmPm   == 'am' && endHour   == 12) endHour   = 0;
+      }
+
+      final start = DateTime(year, month, day, startHour, startMin);
+      final end   = DateTime(year, month, day, endHour,   endMin);
+      return [start.millisecondsSinceEpoch, end.millisecondsSinceEpoch];
+    }
+
     return null; // no recognizable time reference
   }
 
@@ -651,10 +687,14 @@ class GeminiService {
         // the original user message, then filters client-side.
         // No server-side orderByChild needed — avoids index errors.
         try {
+          final dateRange = _parseDateRange(originalQuestion);
+          final fetchLimit = dateRange != null ? 2000 : 500;
+
           final logsSnap = await FirebaseDatabase.instance
               .ref('deviceLogs')
               .child(user.uid)
               .child(deviceCode)
+              .limitToLast(fetchLimit)
               .get();
 
           if (logsSnap.exists && logsSnap.value != null) {
@@ -687,7 +727,7 @@ class GeminiService {
 
               // Apply date-range filter if the user question
               // contains a recognizable time reference
-              final dateRange = _parseDateRange(originalQuestion);
+              // final dateRange = _parseDateRange(originalQuestion);
               List<Map<dynamic, dynamic>> filtered;
 
               if (dateRange != null) {
@@ -716,71 +756,98 @@ class GeminiService {
                 buf.writeln(
                     '- GPS logs: No entries found for the requested time period');
               } else {
+                // ── Most recent ping ──────────────────────────
                 final latest = filtered.first;
-                final lat =
-                    (latest['latitude'] as num?)?.toDouble();
-                final lng =
-                    (latest['longitude'] as num?)?.toDouble();
-                final acc = latest['accuracy'];
-                final type =
-                    latest['locationType'] ?? 'unknown';
-                final spd =
-                    (latest['speed'] as num?)?.toDouble() ?? 0;
-                final ts =
-                    (latest['timestamp'] as num?)?.toInt() ?? 0;
-                // Feature 3 — formatted timestamp instead of raw DateTime
-                final tsFormatted = _formatTimestamp(ts);
+                final oldest = filtered.last;
+
+                final lat = (latest['latitude']  as num?)?.toDouble();
+                final lng = (latest['longitude'] as num?)?.toDouble();
+                final latestTs = (latest['timestamp'] as num?)?.toInt() ?? 0;
+                final oldestTs = (oldest['timestamp'] as num?)?.toInt() ?? 0;
+                final acc  = latest['accuracy'];
+                final type = latest['locationType'] ?? 'unknown';
+                final spd  = (latest['speed'] as num?)?.toDouble() ?? 0;
+
                 final locationTypeDesc = type == 'gps'
                     ? 'live GPS fix'
                     : type == 'cached'
                         ? 'last known position (GPS unavailable)'
                         : type;
 
-                if (lat == null ||
-                    lng == null ||
-                    (lat == 0 && lng == 0)) {
-                  buf.writeln(
-                      '- GPS: Device has not reported a valid location yet');
+                if (lat == null || lng == null || (lat == 0 && lng == 0)) {
+                  buf.writeln('- GPS: Device has not reported a valid location yet');
                 } else {
                   // Reverse geocode current location into human-readable place name
                   final placeName = await _reverseGeocode(lat, lng);
                   buf.writeln('- Most recent location: $placeName');
                   buf.writeln('  • Coordinates: Lat $lat, Lng $lng');
-                  buf.writeln('  • Recorded: $tsFormatted');
+                  buf.writeln('  • Recorded: ${_formatTimestamp(latestTs)}');
                   buf.writeln('  • Fix type: $locationTypeDesc');
                   buf.writeln('  • Accuracy: approx. ${acc}m');
-                  buf.writeln(
-                      '  • Speed: ${spd.toStringAsFixed(1)} km/h');
+                  buf.writeln('  • Speed: ${spd.toStringAsFixed(1)} km/h');
                 }
 
-                // Show up to 5 historical entries for context
-                if (filtered.length > 1) {
-                  final showCount =
-                      filtered.length > 5 ? 5 : filtered.length;
-                  buf.writeln(
-                      '- Location history (up to $showCount entries):');
-                  for (int i = 1; i < showCount; i++) {
-                    final r = filtered[i];
-                    final rLat =
-                        (r['latitude'] as num?)?.toDouble();
-                    final rLng =
-                        (r['longitude'] as num?)?.toDouble();
-                    final rTs =
-                        (r['timestamp'] as num?)?.toInt() ?? 0;
-                    // Feature 3 — formatted history timestamps
-                    final rFmt = _formatTimestamp(rTs);
-                    if (rLat != null &&
-                        rLng != null &&
-                        !(rLat == 0 && rLng == 0)) {
-                      buf.writeln(
-                          '  • Lat $rLat, Lng $rLng — $rFmt');
-                    }
+                // ── Summary stats ─────────────────────────────
+                int gpsCount    = 0;
+                int cachedCount = 0;
+                double maxSpeed = 0;
+                double totalSpeed = 0;
+                int movingCount = 0;
+
+                for (final log in filtered) {
+                  final logType = log['locationType']?.toString() ?? 'cached';
+                  final logSpd  = (log['speed'] as num?)?.toDouble() ?? 0;
+                  if (logType == 'gps') gpsCount++; else cachedCount++;
+                  if (logSpd > 0) {
+                    movingCount++;
+                    totalSpeed += logSpd;
+                    if (logSpd > maxSpeed) maxSpeed = logSpd;
                   }
                 }
-              }
 
-              buf.writeln(
-                  '- Total logs on device: ${allLogs.length}');
+                final avgSpeed = movingCount > 0
+                    ? (totalSpeed / movingCount).toStringAsFixed(1)
+                    : '0.0';
+
+                buf.writeln('- Log summary for requested period:');
+                buf.writeln('  • Total entries: ${filtered.length}');
+                buf.writeln('  • Period: ${_formatTimestamp(oldestTs)} → ${_formatTimestamp(latestTs)}');
+                buf.writeln('  • Live GPS fixes: $gpsCount');
+                buf.writeln('  • Cached/no-fix entries: $cachedCount');
+                buf.writeln('  • Entries where child was moving: $movingCount');
+                buf.writeln('  • Max speed recorded: ${maxSpeed.toStringAsFixed(1)} km/h');
+                buf.writeln('  • Average speed (while moving): $avgSpeed km/h');
+
+                // ── School hours breakdown ────────────────────
+                final schoolLogs = filtered.where((log) {
+                  final ts = (log['timestamp'] as num?)?.toInt() ?? 0;
+                  if (ts == 0) return false;
+                  final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+                  return (dt.hour > 7 || (dt.hour == 7 && dt.minute >= 30)) &&
+                         (dt.hour < 15 || (dt.hour == 15 && dt.minute <= 30));
+                }).toList();
+
+                final afterSchoolLogs = filtered.where((log) {
+                  final ts = (log['timestamp'] as num?)?.toInt() ?? 0;
+                  if (ts == 0) return false;
+                  final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+                  return dt.hour > 15 || (dt.hour == 15 && dt.minute > 30);
+                }).toList();
+
+                buf.writeln('- School hours pings (07:30–15:30): ${schoolLogs.length}');
+                buf.writeln('- After school pings (after 15:30): ${afterSchoolLogs.length}');
+
+                if (schoolLogs.isNotEmpty) {
+                  final firstSchool = schoolLogs.last;  // list is descending
+                  final lastSchool  = schoolLogs.first;
+                  final firstTs = (firstSchool['timestamp'] as num?)?.toInt() ?? 0;
+                  final lastTs  = (lastSchool['timestamp']  as num?)?.toInt() ?? 0;
+                  buf.writeln('- First school-hour ping: ${_formatTimestamp(firstTs)}');
+                  buf.writeln('- Last school-hour ping:  ${_formatTimestamp(lastTs)}');
+                }
+              } // ← end of filtered.isEmpty else
+
+              buf.writeln('- Total logs on device (all time): ${allLogs.length}');
             }
           } else {
             buf.writeln(

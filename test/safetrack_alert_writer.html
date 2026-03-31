@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SafeTrack — Alert Writer (Goal 2 & 3)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0f1a;--surface:#111827;--border:#1e2d45;
+  --accent:#3b82f6;--accent2:#10b981;--warn:#f59e0b;--danger:#ef4444;
+  --purple:#8b5cf6;--text:#e2e8f0;--muted:#64748b;
+  --mono:'JetBrains Mono',monospace;--sans:'Sora',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;gap:14px;}
+.logo{width:36px;height:36px;background:var(--danger);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+header h1{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:.05em;}
+header span{font-size:11px;font-family:var(--mono);margin-left:auto;background:rgba(239,68,68,.1);border:1px solid var(--danger);border-radius:4px;padding:3px 8px;color:var(--danger);}
+.workspace{display:grid;grid-template-columns:380px 1fr;flex:1;height:calc(100vh - 69px);}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;}
+.main-panel{overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:20px;}
+.card{background:#0d1526;border:1px solid var(--border);border-radius:10px;padding:16px;}
+.card-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+.card-title::before{content:'';display:inline-block;width:3px;height:12px;background:var(--danger);border-radius:2px;}
+label{display:block;font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:5px;margin-top:10px;}
+label:first-of-type{margin-top:0;}
+select,input[type=text],input[type=number]{width:100%;background:#0a0f1a;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:13px;font-family:var(--sans);outline:none;transition:border-color .2s;appearance:none;}
+select:focus,input:focus{border-color:var(--danger);}
+
+.alert-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.alert-chip{background:#0a0f1a;border:1px solid var(--border);border-radius:8px;padding:12px 8px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+.alert-chip:hover{border-color:var(--accent);}
+.alert-chip.selected{border-color:var(--danger);background:rgba(239,68,68,.1);}
+.alert-chip .icon{font-size:20px;display:block;margin-bottom:4px;}
+.alert-chip .label{font-family:var(--mono);font-size:9px;color:var(--muted);display:block;}
+.alert-chip.selected .label{color:var(--danger);}
+
+.alert-config{display:none;}
+.alert-config.visible{display:block;}
+
+.btn{width:100%;padding:11px;border-radius:7px;border:none;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;cursor:pointer;transition:all .2s;margin-top:8px;}
+.btn-danger{background:var(--danger);color:#fff;}.btn-danger:hover{background:#dc2626;}.btn-danger:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-success{background:var(--accent2);color:#fff;}.btn-success:hover{background:#059669;}.btn-success:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-primary{background:var(--accent);color:#fff;}.btn-primary:hover{background:#2563eb;}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted);margin-top:8px;}.btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}.btn-row .btn{margin-top:0;}
+
+.student-row{background:#0d1526;border:1px solid var(--border);border-radius:8px;padding:14px 16px;display:flex;align-items:center;gap:14px;margin-bottom:10px;}
+.student-row.has-alert{border-color:rgba(239,68,68,.4);}
+.student-row.done{border-color:rgba(16,185,129,.4);}
+.s-num{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:24px;}
+.s-info{flex:1;}
+.s-name{font-size:13px;font-weight:600;}
+.s-date{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;}
+.s-alert-badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:4px;font-weight:700;}
+.badge-none{background:rgba(100,116,139,.15);color:var(--muted);}
+.badge-late{background:rgba(245,158,11,.15);color:var(--warn);}
+.badge-deviation{background:rgba(245,158,11,.15);color:var(--warn);}
+.badge-sos{background:rgba(239,68,68,.15);color:var(--danger);}
+.badge-absent{background:rgba(139,92,246,.15);color:var(--purple);}
+.badge-anomaly{background:rgba(245,158,11,.15);color:var(--warn);}
+.badge-silent{background:rgba(100,116,139,.2);color:#94a3b8;}
+.badge-done{background:rgba(16,185,129,.15);color:var(--accent2);}
+.badge-multi{background:rgba(59,130,246,.15);color:var(--accent);}
+
+.log-console{background:#040810;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;height:180px;overflow-y:auto;line-height:1.6;}
+.log-entry{margin-bottom:2px;}
+.log-entry.info{color:#60a5fa;}.log-entry.success{color:#34d399;}.log-entry.error{color:#f87171;}.log-entry.warn{color:#fbbf24;}.log-entry.muted{color:var(--muted);}
+
+.preview-box{background:#040810;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;line-height:1.7;color:#94a3b8;min-height:80px;}
+.preview-box strong{color:var(--text);}
+
+::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🚨</div>
+  <h1>SAFETRACK — ALERT WRITER</h1>
+  <span>GOAL 2 & 3 · Alert Logs · 16 Students</span>
+</header>
+
+<div class="workspace">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <div class="card">
+      <div class="card-title">Select Student</div>
+      <label>STUDENT</label>
+      <select id="studentSelect" onchange="onStudentChange()">
+        <option value="">— Choose student —</option>
+      </select>
+      <div id="studentMeta" style="margin-top:10px;font-size:11px;color:var(--muted);font-family:var(--mono);line-height:1.7;display:none;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Alert Type</div>
+      <div class="alert-grid" id="alertGrid">
+        <div class="alert-chip" onclick="selectAlert('sos')">
+          <span class="icon">🆘</span>
+          <span class="label">SOS</span>
+        </div>
+        <div class="alert-chip" onclick="selectAlert('deviation')">
+          <span class="icon">⚠️</span>
+          <span class="label">DEVIATION</span>
+        </div>
+        <div class="alert-chip" onclick="selectAlert('late')">
+          <span class="icon">⏰</span>
+          <span class="label">LATE</span>
+        </div>
+        <div class="alert-chip" onclick="selectAlert('absent')">
+          <span class="icon">📋</span>
+          <span class="label">ABSENT</span>
+        </div>
+        <div class="alert-chip" onclick="selectAlert('anomaly')">
+          <span class="icon">⚠️</span>
+          <span class="label">ANOMALY</span>
+        </div>
+        <div class="alert-chip" onclick="selectAlert('silent')">
+          <span class="icon">📡</span>
+          <span class="label">SILENT</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SOS config -->
+    <div class="card alert-config" id="cfg-sos">
+      <div class="card-title">SOS Configuration</div>
+      <label>TIME OF SOS (PHT 24hr)</label>
+      <input type="text" id="sos-time" value="14:23" placeholder="HH:MM">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">SOS during school hours (08:00–15:30)</p>
+    </div>
+
+    <!-- Deviation config -->
+    <div class="card alert-config" id="cfg-deviation">
+      <div class="card-title">Deviation Configuration</div>
+      <label>DISTANCE FROM ROUTE (meters)</label>
+      <input type="number" id="dev-distance" value="90" min="30" max="500">
+      <label>ROUTE NAME</label>
+      <input type="text" id="dev-route" value="Afternoon Route">
+      <label>TIME OF DETECTION (PHT 24hr)</label>
+      <input type="text" id="dev-time" value="15:40" placeholder="HH:MM">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">Real GPS coordinates are auto-used from student route data</p>
+    </div>
+
+    <!-- Late config -->
+    <div class="card alert-config" id="cfg-late">
+      <div class="card-title">Late Arrival Configuration</div>
+      <label>FIRST GPS PING TIME AT SCHOOL (PHT)</label>
+      <input type="text" id="late-time" value="07:53" placeholder="HH:MM">
+      <label>SCHOOL START TIME</label>
+      <input type="text" id="late-schoolstart" value="07:30" placeholder="HH:MM">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">Late = arrived after school start + 15 min grace (07:45)</p>
+    </div>
+
+    <!-- Absent config -->
+    <div class="card alert-config" id="cfg-absent">
+      <div class="card-title">Absent Configuration</div>
+      <label>SCHOOL TIME IN</label>
+      <input type="text" id="abs-in" value="07:30" placeholder="HH:MM">
+      <label>SCHOOL TIME OUT</label>
+      <input type="text" id="abs-out" value="15:30" placeholder="HH:MM">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">No GPS pings detected during school hours at all.</p>
+    </div>
+
+    <!-- Anomaly config -->
+    <div class="card alert-config" id="cfg-anomaly">
+      <div class="card-title">Anomaly Configuration</div>
+      <label>MOVEMENT DETECTED AT (PHT 24hr)</label>
+      <input type="text" id="ano-time" value="22:17" placeholder="HH:MM">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">Anomaly = movement after 22:00 or before 05:00</p>
+    </div>
+
+    <!-- Silent config -->
+    <div class="card alert-config" id="cfg-silent">
+      <div class="card-title">Silent Configuration</div>
+      <label>LAST KNOWN UPDATE (PHT 24hr)</label>
+      <input type="text" id="sil-lastupdate" value="09:10" placeholder="HH:MM">
+      <label>SILENCE DURATION (minutes)</label>
+      <input type="number" id="sil-duration" value="20" min="15" max="120">
+      <p style="font-size:10px;color:var(--muted);margin-top:4px;">Threshold is 15 min — use ≥15 for realism</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Preview & Write</div>
+      <div class="preview-box" id="previewBox">
+        // Select a student and alert type<br>// to preview the alertLogs entry
+      </div>
+      <button class="btn btn-danger" id="btnWrite" onclick="writeAlert()" disabled>
+        🚨 WRITE ALERT TO FIREBASE
+      </button>
+      <button class="btn btn-ghost" onclick="clearSelection()">
+        🔄 CLEAR
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Console</div>
+      <div class="log-console" id="logConsole">
+        <div class="log-entry muted">// SafeTrack Alert Writer ready</div>
+        <div class="log-entry muted">// 16 students loaded from CSV</div>
+        <div class="log-entry muted">// deviation → writes alertLogs + deviceLogs</div>
+        <div class="log-entry muted">// all others → writes alertLogs only</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div class="main-panel">
+    <div>
+      <h2 style="font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px;">
+        16 Students — Alert Distribution
+      </h2>
+      <div id="studentList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Batch Write All Suggested Alerts</div>
+      <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
+        Writes all alerts from your CSV data for all 16 students at once.
+        Students marked "none" are skipped. Deviation alerts also write
+        real off-route GPS pings to deviceLogs for data consistency.
+      </p>
+      <button class="btn btn-success" id="btnBatch" onclick="batchWriteAll()">
+        ☁ BATCH WRITE ALL ALERTS (5 students with alerts)
+      </button>
+      <div id="batchProgress" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px;display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey:           "AIzaSyBxE1-lPFOY8ugfYQB_CvUR7xtWWhZZRFY",
+  authDomain:       "safetrack-76a0c.firebaseapp.com",
+  databaseURL:      "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:        "safetrack-76a0c",
+  storageBucket:    "safetrack-76a0c.firebasestorage.app",
+  messagingSenderId:"662603140937",
+  appId:            "1:662603140937:android:79b904026f21f7996a1498"
+};
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+// ── Student data — all 16 from CSV ────────────────────────────
+// alert field matches CSV "Alert Type or Notif Type" column
+// alertTime matches CSV "Alert Time" column (converted to 24hr)
+const STUDENTS = [
+  { no:1,  date:"3/17/2026", name:"Saih Nihayda G. Palma",       childName:"Saih Nihayda",     uid:"PGZ40LhmE6RcGBhhMaJ5e4WTFhD3", alert:"none" },
+  { no:2,  date:"3/18/2026", name:"Blake Averylou Dente",         childName:"Blake Averylou",   uid:"rMzUX8MuQZSIrgP9YCb8I8I56jJ2", alert:"none" },
+  { no:3,  date:"3/19/2026", name:"Hailey Zara Belamia",          childName:"Hailey Zara",      uid:"6KKJPd3m3LOqhvwiZ9olucC6fHi2", alert:"late",      alertTime:"07:53" },
+  { no:4,  date:"3/21/2026", name:"Alexander P. Carillo",         childName:"Alexander",        uid:"db50FjDE8ISqbnV2uCmPAVTvibj2", alert:"late",      alertTime:"07:39" },
+  { no:5,  date:"3/23/2026", name:"Reine Ausrich Maningo",        childName:"Reine Ausrich",    uid:"U9miRjyWjhTm8L92AZlfrxeQTsp1", alert:"none" },
+  { no:6,  date:"3/24/2026", name:"Aquilla Chlauvin Malapitan",   childName:"Aquilla Chlauvin", uid:"4BxEzjgXkpQ57R4NSAUpNwliFpt2", alert:"sos",       alertTime:"14:23" },
+  { no:7,  date:"3/25/2026", name:"Celestine Nickol F. Pepito",   childName:"Celestine",        uid:"WQ1zMaVhS4NwZcUm9MXJmpOHAQp1", alert:"late",      alertTime:"07:35" },
+  { no:8,  date:"3/26/2026", name:"Rayden Reece B. Tigley",       childName:"Rayden Reece",     uid:"lgO811a8n4MQuPQerLx2uCxnsWt1", alert:"deviation", alertTime:"15:40" },
+  { no:9,  date:"3/27/2026", name:"Shannah Sofhia N. Buot",       childName:"Shannah Sofhia",   uid:"xfqUgnESaTZpDKLMsWMvk51loi23", alert:"none" },
+  { no:10, date:"3/28/2026", name:"Derrick Gabe J. Leones",       childName:"Derrick Gabe",     uid:"608CD1iZNohQcrijkpQ9OqYbaZQ2", alert:"none" },
+  { no:11, date:"3/30/2026", name:"Sten Cairo Tigbao",            childName:"Sten Cairo",       uid:"iYTKUOs57SgUIPBNuYXYqQe6mM63", alert:"none" },
+  { no:12, date:"3/31/2026", name:"Andrea Jahnelle Enarle",       childName:"Andrea Jahnelle",  uid:"r1rtWfcPbENzNlhThm0zxJra2Fq1", alert:"deviation", alertTime:"15:38" },
+  { no:13, date:"4/1/2026",  name:"Raimon Rhey Arendain",         childName:"Raimon Rhey",      uid:"tF4dmmuC0oS3hMoB3XCeqZN4a652", alert:"none" },
+  { no:14, date:"4/6/2026",  name:"John Reyven Molina",           childName:"John Reyven",      uid:"9e9jmjgA9UaDAfGdaFU3xYdIeHf1", alert:"none" },
+  { no:15, date:"4/7/2026",  name:"Paolo Nino Bustamante",        childName:"Paolo Nino",       uid:"JD8ph7PmCIeqJGR7k5p59tAmDK23", alert:"none" },
+  { no:16, date:"4/8/2026",  name:"Leevan Gonzales",              childName:"Leevan",           uid:"eN1BsyVWWeQcUaAsqOjoG7hKzdt1", alert:"silent",    alertTime:"09:10" },
+];
+
+const DEVICE = "DEVICE1234";
+const SCHOOL = { lat:10.584591740218444, lng:124.01779850502602 };
+
+// ── Real GPS geodata for deviation students ───────────────────
+// Coordinates calculated from actual CSV waypoints using
+// perpendicular projection ~90m off the afternoon return route.
+// onRoute = point ON the actual registered route at time of alert
+// offRoute = point 90m perpendicular from the route (real deviation)
+const DEVIATION_GEODATA = {
+  // Rayden Reece B. Tigley — off route at 15:40 on toHome route
+  // Route segment: 10.596508 → 10.597864 at 35% along return
+  'lgO811a8n4MQuPQerLx2uCxnsWt1': {
+    onRoute:   [10.596954, 124.005951],
+    offRoute:  [10.597757, 124.005851],
+    routeName: 'Afternoon Route',
+    date:      '3/26/2026',
+    time:      '15:40',
+    distance:  90,
+  },
+  // Andrea Jahnelle Enarle — off route at 15:38 on toHome route
+  // Route segment: 10.583515 → 10.583719 at 35% along return
+  'r1rtWfcPbENzNlhThm0zxJra2Fq1': {
+    onRoute:   [10.583880, 124.014698],
+    offRoute:  [10.584684, 124.014610],
+    routeName: 'Afternoon Route',
+    date:      '3/31/2026',
+    time:      '15:38',
+    distance:  90,
+  },
+};
+
+// ── State ──────────────────────────────────────────────────────
+let selectedStudent   = null;
+let selectedAlertType = null;
+let writtenAlerts     = {};
+
+// ── Init ───────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('studentSelect');
+  STUDENTS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.no;
+    opt.textContent = `#${s.no} — ${s.name} (${s.date})`;
+    sel.appendChild(opt);
+  });
+  renderStudentList();
+  log('Alert Writer ready — 16 students loaded from CSV', 'success');
+  log('Deviation alerts write real GPS coords to deviceLogs', 'info');
+});
+
+// ── Student list renderer ──────────────────────────────────────
+function renderStudentList() {
+  const container = document.getElementById('studentList');
+  container.innerHTML = '';
+  STUDENTS.forEach(s => {
+    const isDone = writtenAlerts[s.uid];
+    const div = document.createElement('div');
+    div.className = `student-row ${s.alert !== 'none' ? 'has-alert' : ''} ${isDone ? 'done' : ''}`;
+    div.innerHTML = `
+      <span class="s-num">#${s.no}</span>
+      <div class="s-info">
+        <div class="s-name">${s.name}</div>
+        <div class="s-date">${s.date} · UID: ${s.uid.substring(0,10)}...
+          ${s.alertTime ? ` · ${s.alertTime}` : ''}
+        </div>
+      </div>
+      <span class="s-alert-badge ${isDone ? 'badge-done' : getBadgeClass(s.alert)}">
+        ${isDone ? '✓ WRITTEN' : s.alert.toUpperCase()}
+      </span>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function getBadgeClass(alert) {
+  const map = {
+    none:'badge-none', late:'badge-late', deviation:'badge-deviation',
+    sos:'badge-sos', absent:'badge-absent', anomaly:'badge-anomaly',
+    silent:'badge-silent', 'late+deviation':'badge-multi'
+  };
+  return map[alert] || 'badge-none';
+}
+
+// ── Timestamp helper (PHT → UTC ms) ───────────────────────────
+function toTs(dateStr, timeStr) {
+  const [m, d, y] = dateStr.split('/').map(Number);
+  const [h, min]  = timeStr.split(':').map(Number);
+  return Date.UTC(y, m-1, d, h, min, 0) - (8 * 60 * 60 * 1000);
+}
+
+// ── Alert entry builders ───────────────────────────────────────
+function buildSos(s) {
+  const time = document.getElementById('sos-time').value || '14:23';
+  const ts   = toTs(s.date, time);
+  return {
+    type:      'sos',
+    childName: s.childName,
+    message:   `${s.childName} has triggered an SOS emergency alert! Please open the app immediately to view their location.`,
+    timestamp: ts,
+  };
+}
+
+function buildDeviation(s) {
+  const dist  = parseFloat(document.getElementById('dev-distance').value) || 90;
+  const route = document.getElementById('dev-route').value || 'Afternoon Route';
+  const time  = document.getElementById('dev-time').value || '15:40';
+  const ts    = toTs(s.date, time);
+  return {
+    type:           'deviation',
+    childName:      s.childName,
+    message:        `${s.childName} is ${dist.toFixed(0)}m away from the registered route "${route}". Please check their location immediately.`,
+    timestamp:      ts,
+    distanceMeters: dist,
+    routeName:      route,
+  };
+}
+
+function buildLate(s) {
+  const arrivalTime = document.getElementById('late-time').value || '07:53';
+  const schoolStart = document.getElementById('late-schoolstart').value || '07:30';
+  const ts          = toTs(s.date, arrivalTime);
+  const [sh, sm]    = schoolStart.split(':').map(Number);
+  const [ah, am]    = arrivalTime.split(':').map(Number);
+  const lateBy      = (ah * 60 + am) - (sh * 60 + sm);
+  return {
+    type:      'late',
+    childName: s.childName,
+    message:   `${s.childName}'s device was first detected at ${arrivalTime}, which is ${lateBy} minutes after school start time (${schoolStart}). They may have arrived late.`,
+    timestamp: ts,
+  };
+}
+
+function buildAbsent(s) {
+  const timeIn  = document.getElementById('abs-in').value  || '07:30';
+  const timeOut = document.getElementById('abs-out').value || '15:30';
+  const [h, m]  = timeIn.split(':').map(Number);
+  const graceMs = toTs(s.date, `${String(h).padStart(2,'0')}:${String(m+15).padStart(2,'0')}`);
+  return {
+    type:      'absent',
+    childName: s.childName,
+    message:   `${s.childName} has not been detected during school hours today (${timeIn} – ${timeOut}). They may be absent. Please verify.`,
+    timestamp: graceMs,
+  };
+}
+
+function buildAnomaly(s) {
+  const time = document.getElementById('ano-time').value || '22:17';
+  const ts   = toTs(s.date, time);
+  return {
+    type:      'anomaly',
+    childName: s.childName,
+    message:   `${s.childName}'s device detected movement at ${time}, which is outside normal school hours. Please verify their whereabouts.`,
+    timestamp: ts,
+  };
+}
+
+function buildSilent(s) {
+  const lastUpdate  = document.getElementById('sil-lastupdate').value || '09:10';
+  const durationMin = parseInt(document.getElementById('sil-duration').value) || 20;
+  const ts          = toTs(s.date, lastUpdate);
+  return {
+    type:      'silent',
+    childName: s.childName,
+    message:   `${s.childName}'s device has not sent any data for ${durationMin} minutes. The device may be off, out of battery, or without signal. Last known update was at ${lastUpdate}.`,
+    timestamp: ts,
+  };
+}
+
+function buildEntry(s, alertType) {
+  switch(alertType) {
+    case 'sos':       return buildSos(s);
+    case 'deviation': return buildDeviation(s);
+    case 'late':      return buildLate(s);
+    case 'absent':    return buildAbsent(s);
+    case 'anomaly':   return buildAnomaly(s);
+    case 'silent':    return buildSilent(s);
+    default:          return null;
+  }
+}
+
+// ── Batch defaults using real alertTime from CSV ───────────────
+function buildBatchEntry(s, alertType) {
+  const time = s.alertTime || '09:00';
+  switch(alertType) {
+    case 'sos':
+      document.getElementById('sos-time').value = time;
+      break;
+    case 'deviation':
+      // Use geodata time — more accurate than alertTime string
+      const geo = DEVIATION_GEODATA[s.uid];
+      document.getElementById('dev-distance').value = geo ? geo.distance : 90;
+      document.getElementById('dev-route').value    = geo ? geo.routeName : 'Afternoon Route';
+      document.getElementById('dev-time').value     = geo ? geo.time : time;
+      break;
+    case 'late':
+      document.getElementById('late-time').value        = time;
+      document.getElementById('late-schoolstart').value = '07:30';
+      break;
+    case 'absent':
+      document.getElementById('abs-in').value  = '07:30';
+      document.getElementById('abs-out').value = '15:30';
+      break;
+    case 'anomaly':
+      document.getElementById('ano-time').value = time;
+      break;
+    case 'silent':
+      document.getElementById('sil-lastupdate').value = time;
+      document.getElementById('sil-duration').value   = 20;
+      break;
+  }
+  return buildEntry(s, alertType);
+}
+
+// ── Write to alertLogs ─────────────────────────────────────────
+async function pushEntry(uid, entry) {
+  await push(ref(db, `alertLogs/${uid}/${DEVICE}`), entry);
+}
+
+// ── Write real off-route GPS pings to deviceLogs (deviation) ──
+// Uses actual perpendicular coordinates calculated from CSV waypoints.
+// 4 pings: 2 on-route (before deviation), 2 off-route (during deviation)
+async function writeDeviationGpsPings(s) {
+  const geo = DEVIATION_GEODATA[s.uid];
+  if (!geo) {
+    log(`  ⚠ No geodata for ${s.childName} — deviceLogs skipped`, 'warn');
+    return;
+  }
+
+  const baseTs  = toTs(geo.date, geo.time);
+  const jitter  = () => (Math.random() - 0.5) * 0.00008; // ~9m realistic GPS noise
+
+  const pings = [
+    // 4 min before: still on route, moving
+    { offsetMin: -4, lat: geo.onRoute[0],  lng: geo.onRoute[1],  speed: parseFloat((16 + Math.random()*8).toFixed(1)), onRoute: true  },
+    // 2 min before: still on route
+    { offsetMin: -2, lat: geo.onRoute[0],  lng: geo.onRoute[1],  speed: parseFloat((14 + Math.random()*8).toFixed(1)), onRoute: true  },
+    // Deviation moment: off route
+    { offsetMin:  0, lat: geo.offRoute[0], lng: geo.offRoute[1], speed: parseFloat((8  + Math.random()*6).toFixed(1)), onRoute: false },
+    // 2 min after: still off route
+    { offsetMin:  2, lat: geo.offRoute[0], lng: geo.offRoute[1], speed: parseFloat((6  + Math.random()*6).toFixed(1)), onRoute: false },
+  ];
+
+  for (const ping of pings) {
+    const ts = baseTs + (ping.offsetMin * 60000);
+    await push(ref(db, `deviceLogs/${s.uid}/${DEVICE}`), {
+      latitude:    parseFloat((ping.lat + jitter()).toFixed(6)),
+      longitude:   parseFloat((ping.lng + jitter()).toFixed(6)),
+      altitude:    parseFloat((10 + Math.random() * 15).toFixed(1)),
+      speed:       ping.speed,
+      accuracy:    5.0,
+      locationType:'gps',
+      sos:         false,
+      batteryLevel:74,
+      timestamp:   ts,
+      lastUpdate:  ts,
+    });
+  }
+  log(`  → 4 real off-route pings written to deviceLogs`, 'success');
+  log(`    On-route:  ${geo.onRoute[0]}, ${geo.onRoute[1]}`, 'muted');
+  log(`    Off-route: ${geo.offRoute[0]}, ${geo.offRoute[1]}`, 'muted');
+}
+
+// ── Write anomaly GPS pings to deviceLogs (if needed manually) ─
+async function writeAnomalyGpsPings(s, anomalyTimeStr) {
+  const baseTs  = toTs(s.date, anomalyTimeStr);
+  const jitter  = () => (Math.random() - 0.5) * 0.0003;
+  // Use school area as approximate location — no anomaly in current dataset
+  const homeLat = SCHOOL.lat + 0.005;
+  const homeLng = SCHOOL.lng + 0.003;
+
+  const pings = [
+    { offsetMin: 0, speed: parseFloat((6 + Math.random()*8).toFixed(1)) },
+    { offsetMin: 2, speed: parseFloat((8 + Math.random()*8).toFixed(1)) },
+    { offsetMin: 4, speed: parseFloat((5 + Math.random()*6).toFixed(1)) },
+  ];
+
+  for (const ping of pings) {
+    const ts = baseTs + (ping.offsetMin * 60000);
+    await push(ref(db, `deviceLogs/${s.uid}/${DEVICE}`), {
+      latitude:    parseFloat((homeLat + jitter()).toFixed(6)),
+      longitude:   parseFloat((homeLng + jitter()).toFixed(6)),
+      altitude:    parseFloat((8 + Math.random() * 5).toFixed(1)),
+      speed:       ping.speed,
+      accuracy:    5.0,
+      locationType:'gps',
+      sos:         false,
+      batteryLevel:62,
+      timestamp:   ts,
+      lastUpdate:  ts,
+    });
+  }
+  log(`  → 3 night-time pings written to deviceLogs`, 'success');
+}
+
+// ── Write single alert (manual) ────────────────────────────────
+window.writeAlert = async () => {
+  if (!selectedStudent || !selectedAlertType) return;
+  document.getElementById('btnWrite').disabled = true;
+
+  try {
+    const entry = buildEntry(selectedStudent, selectedAlertType);
+    if (!entry) { log('Could not build entry', 'error'); return; }
+
+    // Always write alertLogs
+    await pushEntry(selectedStudent.uid, entry);
+    log(`✓ ${selectedAlertType.toUpperCase()} written to alertLogs`, 'success');
+    log(`  Path: alertLogs/${selectedStudent.uid.substring(0,8)}.../${DEVICE}`, 'muted');
+
+    // Deviation → also write real off-route pings to deviceLogs
+    if (selectedAlertType === 'deviation') {
+      await writeDeviationGpsPings(selectedStudent);
+    }
+    // Anomaly → also write night pings to deviceLogs
+    else if (selectedAlertType === 'anomaly') {
+      const time = document.getElementById('ano-time').value || '22:17';
+      await writeAnomalyGpsPings(selectedStudent, time);
+    }
+
+    writtenAlerts[selectedStudent.uid] = true;
+    renderStudentList();
+
+  } catch(e) {
+    log(`Error: ${e.message}`, 'error');
+  }
+
+  document.getElementById('btnWrite').disabled = false;
+};
+
+// ── Batch write all alerts ─────────────────────────────────────
+window.batchWriteAll = async () => {
+  document.getElementById('btnBatch').disabled = true;
+  const prog = document.getElementById('batchProgress');
+  prog.style.display = 'block';
+
+  let done = 0;
+
+  for (const s of STUDENTS) {
+    if (s.alert === 'none') {
+      log(`Skipping #${s.no} ${s.childName} (no alert)`, 'muted');
+      continue;
+    }
+
+    const alerts = s.alert.split('+');
+    for (const alertType of alerts) {
+      const type = alertType.trim();
+      try {
+        prog.textContent = `Writing ${type.toUpperCase()} for ${s.childName}...`;
+
+        const entry = buildBatchEntry(s, type);
+        if (!entry) {
+          log(`  Could not build ${type} for ${s.childName}`, 'error');
+          continue;
+        }
+
+        // Write alertLogs
+        await pushEntry(s.uid, entry);
+        done++;
+        writtenAlerts[s.uid] = true;
+        log(`✓ #${s.no} ${s.childName} — ${type.toUpperCase()} → alertLogs`, 'success');
+
+        // Write real deviceLogs for deviation
+        if (type === 'deviation') {
+          await writeDeviationGpsPings(s);
+        }
+        // Write night pings for anomaly (none in current CSV but kept for safety)
+        else if (type === 'anomaly') {
+          const time = s.alertTime || '22:17';
+          await writeAnomalyGpsPings(s, time);
+        }
+
+        // Small delay to avoid rate limiting
+        await new Promise(r => setTimeout(r, 400));
+
+      } catch(e) {
+        log(`✗ #${s.no} ${type}: ${e.message}`, 'error');
+      }
+    }
+  }
+
+  prog.textContent = `✓ Batch complete — ${done} alerts written`;
+  log('─────────────────────────────', 'muted');
+  log(`Batch complete: ${done} alerts written to Firebase`, 'success');
+  renderStudentList();
+  document.getElementById('btnBatch').disabled = false;
+};
+
+// ── UI: student change ─────────────────────────────────────────
+window.onStudentChange = () => {
+  const val = document.getElementById('studentSelect').value;
+  if (!val) return;
+  selectedStudent = STUDENTS.find(s => s.no == val);
+  if (!selectedStudent) return;
+
+  const meta = document.getElementById('studentMeta');
+  meta.style.display = 'block';
+  meta.innerHTML = `
+    <span style="color:var(--accent)">${selectedStudent.childName}</span><br>
+    Date: ${selectedStudent.date}<br>
+    Suggested: <span style="color:var(--warn)">${selectedStudent.alert.toUpperCase()}</span>
+    ${selectedStudent.alertTime ? ` @ <span style="color:var(--warn)">${selectedStudent.alertTime}</span>` : ''}<br>
+    UID: ${selectedStudent.uid.substring(0,14)}...
+  `;
+
+  // Auto-fill alert time into config fields
+  if (selectedStudent.alertTime) {
+    const t = selectedStudent.alertTime;
+    document.getElementById('sos-time').value       = t;
+    document.getElementById('dev-time').value       = t;
+    document.getElementById('late-time').value      = t;
+    document.getElementById('ano-time').value       = t;
+    document.getElementById('sil-lastupdate').value = t;
+  }
+
+  // Auto-select suggested alert type
+  if (selectedStudent.alert !== 'none') {
+    const firstAlert = selectedStudent.alert.split('+')[0].trim();
+    selectAlert(firstAlert);
+  }
+
+  log(`Selected: #${selectedStudent.no} ${selectedStudent.name}`, 'info');
+  updatePreview();
+};
+
+// ── UI: alert type selection ───────────────────────────────────
+window.selectAlert = (type) => {
+  selectedAlertType = type;
+
+  document.querySelectorAll('.alert-chip').forEach(c => c.classList.remove('selected'));
+  const typeMap = ['sos','deviation','late','absent','anomaly','silent'];
+  const idx = typeMap.indexOf(type);
+  if (idx >= 0) document.querySelectorAll('.alert-chip')[idx].classList.add('selected');
+
+  document.querySelectorAll('.alert-config').forEach(c => c.classList.remove('visible'));
+  const cfgEl = document.getElementById(`cfg-${type}`);
+  if (cfgEl) cfgEl.classList.add('visible');
+
+  document.getElementById('btnWrite').disabled = !selectedStudent;
+  updatePreview();
+};
+
+// ── UI: preview box ────────────────────────────────────────────
+function updatePreview() {
+  if (!selectedStudent || !selectedAlertType) return;
+  const entry = buildEntry(selectedStudent, selectedAlertType);
+  if (!entry) return;
+
+  const willWriteDeviceLogs = selectedAlertType === 'deviation' || selectedAlertType === 'anomaly';
+  const geo = DEVIATION_GEODATA[selectedStudent?.uid];
+
+  document.getElementById('previewBox').innerHTML = `
+    <strong>type:</strong> "${entry.type}"<br>
+    <strong>childName:</strong> "${entry.childName}"<br>
+    <strong>message:</strong> "${entry.message}"<br>
+    <strong>timestamp:</strong> ${entry.timestamp}<br>
+    ${entry.distanceMeters ? `<strong>distanceMeters:</strong> ${entry.distanceMeters}<br>` : ''}
+    ${entry.routeName ? `<strong>routeName:</strong> "${entry.routeName}"<br>` : ''}
+    <br>
+    <span style="color:var(--accent2)">→ alertLogs/${selectedStudent.uid.substring(0,10)}.../${DEVICE}/{pushId}</span><br>
+    ${willWriteDeviceLogs && geo ? `<span style="color:var(--warn)">→ deviceLogs: 4 GPS pings (${geo.onRoute[0].toFixed(4)},${geo.onRoute[1].toFixed(4)} → off-route)</span>` : ''}
+    ${willWriteDeviceLogs && !geo ? `<span style="color:var(--muted)">→ deviceLogs: no geodata for this student</span>` : ''}
+  `;
+}
+
+// ── UI: clear ─────────────────────────────────────────────────
+window.clearSelection = () => {
+  selectedStudent   = null;
+  selectedAlertType = null;
+  document.getElementById('studentSelect').value = '';
+  document.getElementById('studentMeta').style.display = 'none';
+  document.querySelectorAll('.alert-chip').forEach(c => c.classList.remove('selected'));
+  document.querySelectorAll('.alert-config').forEach(c => c.classList.remove('visible'));
+  document.getElementById('previewBox').innerHTML =
+    '// Select a student and alert type<br>// to preview the alertLogs entry';
+  document.getElementById('btnWrite').disabled = true;
+};
+
+// ── Console logger ─────────────────────────────────────────────
+function log(msg, type='muted') {
+  const el  = document.getElementById('logConsole');
+  const ts  = new Date().toTimeString().substring(0,8);
+  const div = document.createElement('div');
+  div.className   = `log-entry ${type}`;
+  div.textContent = `[${ts}] ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+// Update preview on any input change
+document.addEventListener('input', e => {
+  if (e.target.tagName === 'INPUT') updatePreview();
+});
+
+</script>
+</body>
+</html>

@@ -3,526 +3,339 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SafeTrack — Data Recorder</title>
+<title>SafeTrack — Data Recorder v2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
-    --bg:        #0a0f1a;
-    --surface:   #111827;
-    --border:    #1e2d45;
-    --accent:    #3b82f6;
-    --accent2:   #10b981;
-    --warn:      #f59e0b;
-    --danger:    #ef4444;
-    --text:      #e2e8f0;
-    --muted:     #64748b;
-    --mono:      'JetBrains Mono', monospace;
-    --sans:      'Sora', sans-serif;
+    --bg:#0a0f1a;--surface:#111827;--border:#1e2d45;
+    --accent:#3b82f6;--accent2:#10b981;--warn:#f59e0b;--danger:#ef4444;
+    --text:#e2e8f0;--muted:#64748b;
+    --mono:'JetBrains Mono',monospace;--sans:'Sora',sans-serif;
   }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* ── Header ── */
-  header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 16px 28px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .logo {
-    width: 36px; height: 36px;
-    background: var(--accent);
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px;
-  }
-  header h1 {
-    font-family: var(--mono);
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: var(--text);
-  }
-  header span {
-    font-size: 11px;
-    color: var(--muted);
-    font-family: var(--mono);
-    margin-left: auto;
-    background: rgba(59,130,246,0.1);
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    padding: 3px 8px;
-    color: var(--accent);
-  }
-
-  /* ── Layout ── */
-  .workspace {
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    flex: 1;
-    overflow: hidden;
-    height: calc(100vh - 69px);
-  }
-
-  /* ── Sidebar ── */
-  .sidebar {
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .card {
-    background: #0d1526;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-  }
-
-  .card-title {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .card-title::before {
-    content: '';
-    display: inline-block;
-    width: 3px; height: 12px;
-    background: var(--accent);
-    border-radius: 2px;
-  }
-
-  label {
-    display: block;
-    font-size: 11px;
-    color: var(--muted);
-    font-family: var(--mono);
-    margin-bottom: 5px;
-    margin-top: 10px;
-  }
-  label:first-of-type { margin-top: 0; }
-
-  select, input[type="number"] {
-    width: 100%;
-    background: #0a0f1a;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    padding: 9px 12px;
-    font-size: 13px;
-    font-family: var(--sans);
-    outline: none;
-    transition: border-color 0.2s;
-    appearance: none;
-  }
-  select:focus, input:focus { border-color: var(--accent); }
-
-  /* Student info pill */
-  .student-info {
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.25);
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 12px;
-    line-height: 1.7;
-    display: none;
-  }
-  .student-info.visible { display: block; }
-  .student-info strong {
-    color: var(--accent);
-    font-family: var(--mono);
-    font-size: 13px;
-    display: block;
-    margin-bottom: 4px;
-  }
-  .student-info span { color: var(--muted); font-family: var(--mono); font-size: 11px; }
-
-  /* Battery slider */
-  .battery-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  input[type="range"] {
-    flex: 1;
-    accent-color: var(--accent2);
-    height: 4px;
-  }
-  .battery-val {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--accent2);
-    min-width: 36px;
-    text-align: right;
-  }
-
-  /* Status display */
-  .status-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-  .stat {
-    background: #0a0f1a;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px;
-    text-align: center;
-  }
-  .stat-val {
-    font-family: var(--mono);
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--accent);
-  }
-  .stat-lbl {
-    font-size: 10px;
-    color: var(--muted);
-    font-family: var(--mono);
-    margin-top: 2px;
-  }
-
-  /* Buttons */
-  .btn {
-    width: 100%;
-    padding: 11px;
-    border-radius: 7px;
-    border: none;
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-top: 8px;
-  }
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-  }
-  .btn-primary:hover { background: #2563eb; }
-  .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-
-  .btn-success {
-    background: var(--accent2);
-    color: #fff;
-  }
-  .btn-success:hover { background: #059669; }
-  .btn-success:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-
-  .btn-danger {
-    background: var(--danger);
-    color: #fff;
-  }
-  .btn-danger:hover { background: #dc2626; }
-  .btn-danger:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-
-  .btn-warn {
-    background: var(--warn);
-    color: #000;
-  }
-  .btn-warn:hover { background: #d97706; }
-  .btn-warn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-
-  .btn-ghost {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-  }
-  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-  .btn-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .btn-row .btn { margin-top: 0; }
-
-  /* Log console */
-  .log-console {
-    background: #040810;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
-    font-family: var(--mono);
-    font-size: 11px;
-    height: 160px;
-    overflow-y: auto;
-    line-height: 1.6;
-  }
-  .log-entry { margin-bottom: 2px; }
-  .log-entry.info { color: #60a5fa; }
-  .log-entry.success { color: #34d399; }
-  .log-entry.error { color: #f87171; }
-  .log-entry.warn { color: #fbbf24; }
-  .log-entry.muted { color: var(--muted); }
-
-  /* Map */
-  #map {
-    width: 100%;
-    height: 100%;
-    background: #060d1a;
-  }
-
-  /* Recording indicator */
-  .recording-badge {
-    display: none;
-    align-items: center;
-    gap: 6px;
-    background: rgba(239,68,68,0.15);
-    border: 1px solid var(--danger);
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--danger);
-    margin-top: 8px;
-  }
-  .recording-badge.visible { display: flex; }
-  .rec-dot {
-    width: 7px; height: 7px;
-    background: var(--danger);
-    border-radius: 50%;
-    animation: pulse 1s infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  /* Progress bar */
-  .progress-wrap {
-    background: var(--border);
-    border-radius: 3px;
-    height: 4px;
-    margin-top: 8px;
-    overflow: hidden;
-  }
-  .progress-bar {
-    height: 100%;
-    background: var(--accent2);
-    border-radius: 3px;
-    width: 0%;
-    transition: width 0.3s;
-  }
-
-  ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;gap:14px;}
+  .logo{width:36px;height:36px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+  header h1{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:.05em;}
+  header span{font-size:11px;font-family:var(--mono);margin-left:auto;background:rgba(59,130,246,.1);border:1px solid var(--accent);border-radius:4px;padding:3px 8px;color:var(--accent);}
+  .workspace{display:grid;grid-template-columns:360px 1fr;flex:1;overflow:hidden;height:calc(100vh - 69px);}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;}
+  .card{background:#0d1526;border:1px solid var(--border);border-radius:10px;padding:16px;}
+  .card-title{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+  .card-title::before{content:'';display:inline-block;width:3px;height:12px;background:var(--accent);border-radius:2px;}
+  label{display:block;font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:5px;margin-top:10px;}
+  label:first-of-type{margin-top:0;}
+  select,input[type=number]{width:100%;background:#0a0f1a;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:13px;font-family:var(--sans);outline:none;transition:border-color .2s;appearance:none;}
+  select:focus,input:focus{border-color:var(--accent);}
+  .student-info{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:12px;font-size:12px;line-height:1.7;display:none;}
+  .student-info.visible{display:block;}
+  .student-info strong{color:var(--accent);font-family:var(--mono);font-size:13px;display:block;margin-bottom:4px;}
+  .battery-row{display:flex;align-items:center;gap:10px;}
+  input[type=range]{flex:1;accent-color:var(--accent2);height:4px;}
+  .battery-val{font-family:var(--mono);font-size:13px;color:var(--accent2);min-width:36px;text-align:right;}
+  .status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .stat{background:#0a0f1a;border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;}
+  .stat-val{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent);}
+  .stat-lbl{font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:2px;}
+  .btn{width:100%;padding:11px;border-radius:7px;border:none;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;cursor:pointer;transition:all .2s;margin-top:8px;}
+  .btn-primary{background:var(--accent);color:#fff;}.btn-primary:hover{background:#2563eb;}.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+  .btn-success{background:var(--accent2);color:#fff;}.btn-success:hover{background:#059669;}.btn-success:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted);}.btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}.btn-row .btn{margin-top:0;}
+  .log-console{background:#040810;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;height:160px;overflow-y:auto;line-height:1.6;}
+  .log-entry{margin-bottom:2px;}.log-entry.info{color:#60a5fa;}.log-entry.success{color:#34d399;}.log-entry.error{color:#f87171;}.log-entry.warn{color:#fbbf24;}.log-entry.muted{color:var(--muted);}
+  #map{width:100%;height:100%;background:#060d1a;}
+  .recording-badge{display:none;align-items:center;gap:6px;background:rgba(239,68,68,.15);border:1px solid var(--danger);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--danger);margin-top:8px;}
+  .recording-badge.visible{display:flex;}
+  .rec-dot{width:7px;height:7px;background:var(--danger);border-radius:50%;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+  .progress-wrap{background:var(--border);border-radius:3px;height:4px;margin-top:8px;overflow:hidden;}
+  .progress-bar{height:100%;background:var(--accent2);border-radius:3px;width:0%;transition:width .3s;}
+  ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+  .wp-badge{display:inline-block;background:rgba(16,185,129,.15);border:1px solid var(--accent2);border-radius:4px;padding:2px 7px;font-family:var(--mono);font-size:10px;color:var(--accent2);margin-top:6px;}
 </style>
 </head>
 <body>
-
 <header>
   <div class="logo">📡</div>
-  <h1>SAFETRACK — DATA RECORDER</h1>
-  <span>GOAL 1 · Activity Logs</span>
+  <h1>SAFETRACK — DATA RECORDER v2</h1>
+  <span>WAYPOINT ROUTING · GOAL 1</span>
 </header>
-
 <div class="workspace">
-  <!-- ── SIDEBAR ── -->
   <div class="sidebar">
-
-    <!-- Student selector -->
     <div class="card">
       <div class="card-title">Student Session</div>
-
       <label>SELECT STUDENT</label>
       <select id="studentSelect" onchange="onStudentChange()">
         <option value="">— Choose student —</option>
       </select>
-
       <div class="student-info" id="studentInfo">
         <strong id="infoName">—</strong>
-        <span id="infoDetails">—</span>
+        <span id="infoDetails" style="white-space:pre-line;font-size:11px;color:#94a3b8;"></span>
+        <div id="infoWp" class="wp-badge" style="margin-top:8px;"></div>
       </div>
     </div>
-
-    <!-- Route setup -->
-    <div class="card">
-      <div class="card-title">Route Setup</div>
-      <p style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5;">
-        Home coordinate is auto-filled from CSV.<br>
-        School is fixed: Academia de San Agustin.
-      </p>
-
-      <label>HOME LAT</label>
-      <input type="number" id="homeLat" step="0.000001" placeholder="10.612715">
-      <label>HOME LNG</label>
-      <input type="number" id="homeLng" step="0.000001" placeholder="124.022496">
-
-      <label>SCHOOL LAT (fixed)</label>
-      <input type="number" id="schoolLat" value="10.584591740218444" readonly style="opacity:0.5">
-      <label>SCHOOL LNG (fixed)</label>, 
-      <input type="number" id="schoolLng" value="124.01779850502602" readonly style="opacity:0.5">
-
-      <button class="btn btn-ghost" onclick="previewRoute()" style="margin-top:12px">
-        🗺️ PREVIEW ROUTE ON MAP
-      </button>
-    </div>
-
-    <!-- Simulation settings -->
     <div class="card">
       <div class="card-title">Simulation Settings</div>
-
       <label>STARTING BATTERY (%)</label>
       <div class="battery-row">
         <input type="range" id="batterySlider" min="56" max="91" value="82"
                oninput="document.getElementById('batteryDisplay').textContent=this.value+'%'">
         <span class="battery-val" id="batteryDisplay">82%</span>
       </div>
-
       <label>TRANSPORT SPEED (km/h)</label>
       <input type="number" id="speedKmh" value="30" min="10" max="60">
-
-      <label>GPS DROPOUT CHANCE (0–100%)</label>
+      <label>GPS DROPOUT CHANCE (%)</label>
       <input type="number" id="dropoutChance" value="8" min="0" max="30">
-      <p style="font-size:10px;color:var(--muted);margin-top:4px">
-        % chance each entry uses "cached" instead of "gps"
-      </p>
+      <p style="font-size:10px;color:var(--muted);margin-top:4px">% chance each ping uses "cached" instead of "gps"</p>
     </div>
-
-    <!-- Status -->
     <div class="card">
       <div class="card-title">Session Status</div>
       <div class="status-grid">
-        <div class="stat">
-          <div class="stat-val" id="statEntries">0</div>
-          <div class="stat-lbl">ENTRIES</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val" id="statProgress">0%</div>
-          <div class="stat-lbl">PROGRESS</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val" id="statBattery">—</div>
-          <div class="stat-lbl">BATTERY</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val" id="statPhase">—</div>
-          <div class="stat-lbl">PHASE</div>
-        </div>
+        <div class="stat"><div class="stat-val" id="statEntries">0</div><div class="stat-lbl">ENTRIES</div></div>
+        <div class="stat"><div class="stat-val" id="statProgress">0%</div><div class="stat-lbl">PROGRESS</div></div>
+        <div class="stat"><div class="stat-val" id="statBattery">—</div><div class="stat-lbl">BATTERY</div></div>
+        <div class="stat"><div class="stat-val" id="statPhase">—</div><div class="stat-lbl">PHASE</div></div>
       </div>
-      <div class="progress-wrap">
-        <div class="progress-bar" id="progressBar"></div>
-      </div>
-      <div class="recording-badge" id="recordingBadge">
-        <div class="rec-dot"></div>
-        GENERATING DATA...
-      </div>
+      <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="recording-badge" id="recordingBadge"><div class="rec-dot"></div>GENERATING DATA...</div>
     </div>
-
-    <!-- Actions -->
     <div class="card">
       <div class="card-title">Actions</div>
-      <button class="btn btn-primary" id="btnGenerate" onclick="generateSession()">
-        ▶ GENERATE FULL DAY
-      </button>
-      <button class="btn btn-success" id="btnWrite" onclick="writeToFirebase()" disabled>
-        ☁ WRITE TO FIREBASE
-      </button>
+      <button class="btn btn-primary" id="btnGenerate" onclick="generateSession()">▶ GENERATE FULL DAY</button>
+      <button class="btn btn-success" id="btnWrite" onclick="writeToFirebase()" disabled>☁ WRITE TO FIREBASE</button>
       <div class="btn-row">
-        <button class="btn btn-ghost" onclick="exportJSON()" id="btnExport" disabled>
-          📤 EXPORT JSON
-        </button>
-        <button class="btn btn-ghost" onclick="resetSession()">
-          🔄 RESET
-        </button>
+        <button class="btn btn-ghost" onclick="exportJSON()" id="btnExport" disabled>📤 EXPORT JSON</button>
+        <button class="btn btn-ghost" onclick="resetSession()">🔄 RESET</button>
       </div>
     </div>
-
-    <!-- Log console -->
     <div class="card">
       <div class="card-title">Console</div>
       <div class="log-console" id="logConsole">
-        <div class="log-entry muted">// SafeTrack Data Recorder ready</div>
-        <div class="log-entry muted">// Select a student to begin</div>
+        <div class="log-entry muted">// SafeTrack Data Recorder v2 ready</div>
+        <div class="log-entry muted">// Waypoint routing enabled</div>
       </div>
     </div>
-
   </div>
-
-  <!-- ── MAP ── -->
   <div id="map"></div>
 </div>
 
-<!-- Firebase SDK -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, push, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-
-// ── Firebase config ───────────────────────────────────────────
-const firebaseConfig = {
-  apiKey:      "AIzaSyBxE1-lPFOY8ugfYQB_CvUR7xtWWhZZRFY",
-  authDomain:  "safetrack-76a0c.firebaseapp.com",
-  databaseURL: "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:   "safetrack-76a0c",
-  storageBucket:"safetrack-76a0c.firebasestorage.app",
-  messagingSenderId: "662603140937",
-  appId:       "1:662603140937:android:79b904026f21f7996a1498"
-};
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
-
-// ── Student data ──────────────────────────────────────────────
+<script>
 const STUDENTS = [
-  { no:1,  date:"3/17/2026", name:"Saih Nihayda G. Palma",       parent:"Marilou Polestilo",         grade:1,  section:"St. Bede the Venerable",         address:"Puente, Carmen, Cebu",          homeLat:10.612715448242707, homeLng:124.0224955487243,  uid:"0BbKQqyzDjgFdqJOY4qTFDx2Hoq2" },
-  { no:2,  date:"3/18/2026", name:"Blake Averylou Dente",         parent:"Chielo Lato",               grade:1,  section:"St. Bede the Venerable",         address:"Lower Natimao-an, Carmen, Cebu",homeLat:10.616946,         homeLng:123.980971,         uid:"68D3bSvPEGT0uRVD2gnVnkef1nx2" },
-  { no:3,  date:"3/19/2026", name:"Hailey Zara Belamia",          parent:"Ana Marie Belamia",         grade:3,  section:"St. Anthony De Padua",           address:"Dawis Norte, Carmen, Cebu",     homeLat:10.574606,         homeLng:124.017647,         uid:"6KKJPd3m3LOqhvwiZ9olucC6fHi2" },
-  { no:4,  date:"3/21/2026", name:"Alexander P. Carillo",         parent:"Amy Pakson",                grade:4,  section:"St. Therese of the Child Jesus", address:"Cabungaan, Catmon, Cebu",       homeLat:10.649845,         homeLng:123.980552,         uid:"db50FjDE8ISqbnV2uCmPAVTvibj2" },
-  { no:5,  date:"3/23/2026", name:"Reine Ausrich Maningo",        parent:"Querina B. Maningo",        grade:4,  section:"St. Therese of the Child Jesus", address:"Ipil, Carmen, Cebu",            homeLat:10.579461,         homeLng:123.990185,         uid:"U9miRjyWjhTm8L92AZlfrxeQTsp1" },
-  { no:6,  date:"3/24/2026", name:"Aquilla Chlauvin Malapitan",   parent:"Chlaudine B. Malapitan",    grade:6,  section:"St. John of the Cross",          address:"Cantumog, Carmen, Cebu",        homeLat:10.600372,         homeLng:123.996628,         uid:"4BxEzjgXkpQ57R4NSAUpNwliFpt2" },
-  { no:7,  date:"3/25/2026", name:"Celestine Nickol F. Pepito",   parent:"Yanica Marie Pungtod",      grade:5,  section:"St. Frances De Sales",           address:"Luyang, Carmen, Cebu",          homeLat:10.599949,         homeLng:124.022901,         uid:"WQ1zMaVhS4NwZcUm9MXJmpOHAQp1" },
-  { no:8,  date:"3/26/2026", name:"Rayden Reece B. Tigley",       parent:"Reyma Mae B. Tigley",       grade:5,  section:"St. Frances De Sales",           address:"Corte, Carmen, Cebu",           homeLat:10.603456,         homeLng:123.982361,         uid:"lgO811a8n4MQuPQerLx2uCxnsWt1" },
-  { no:9,  date:"3/27/2026", name:"Shannah Sofhia N. Buot",       parent:"Liza Buot",                 grade:5,  section:"St. Frances De Sales",           address:"Dawis Sur, Carmen, Cebu",       homeLat:10.570516,         homeLng:124.013191,         uid:"xfqUgnESaTZpDKLMsWMvk51loi23" },
-  { no:10, date:"3/28/2026", name:"Derrick Gabe J. Leones",       parent:"Myla Grace J. Leones",      grade:6,  section:"St. John of the Cross",          address:"Cantumog, Carmen, Cebu",        homeLat:10.594437,         homeLng:124.009026,         uid:"608CD1iZNohQcrijkpQ9OqYbaZQ2" },
+  {
+    "no": 1,
+    "date": "3/17/2026",
+    "name": "Saih Nihayda G. Palma",
+    "parent": "Marilou Polestilo",
+    "grade": 1,
+    "section": "St. Bede the Venerable",
+    "address": "Puente, Carmen, Cebu",
+    "uid": "PGZ40LhmE6RcGBhhMaJ5e4WTFhD3",
+    "toSchool": [[10.620108830787736,124.02636411016852],[10.620324174381274,124.0269236455042],[10.617335216951167,124.02739423164498],[10.607073373076652,124.02524865760701],[10.59675423794281,124.01956966234567],[10.589165763976725,124.01796062748713],[10.58452286734446,124.01745780541613],[10.584575884553402,124.01791265878276]],
+    "toHome": [[10.584619807947321,124.01795801280313],[10.584618618778244,124.0174673262235],[10.5886983246815,124.01783306974556],[10.594678819208754,124.018768636174],[10.594562982185744,124.01894753463516],[10.598944833914059,124.02141896294441],[10.602605029415242,124.02260324757064],[10.606656890377566,124.02420791769171],[10.607350132210856,124.02505986993127],[10.610476023731469,124.02621111514551],[10.614794632364587,124.0272095335526],[10.618600779526014,124.02741298799812],[10.620172462302039,124.02694915924074],[10.619975954959358,124.02627715774517]]
+  },
+  {
+    "no": 2,
+    "date": "3/18/2026",
+    "name": "Blake Averylou Dente",
+    "parent": "Chielo Lato",
+    "grade": 1,
+    "section": "St. Bede the Venerable",
+    "address": "Lower Natimao-an, Carmen, Cebu",
+    "uid": "rMzUX8MuQZSIrgP9YCb8I8I56jJ2",
+    "toSchool": [[10.616378927588944,123.9807872732798],[10.617156591219267,123.98086153086265],[10.617268368762186,123.98119800973315],[10.617510781598314,123.98213902652817],[10.617631559227933,123.98334340743108],[10.616982834986645,123.98401065998381],[10.616586358601573,123.98505733270026],[10.617085647679353,123.98529998117102],[10.616878941134054,123.98587221820382],[10.613625024560317,123.98769211063471],[10.608345132606571,123.98784555022696],[10.605919232555756,123.98695288208337],[10.604414728354529,123.9891377684946],[10.599895143926098,123.99378551613243],[10.60089694111259,123.99595830634426],[10.599040897545875,123.99652952478618],[10.59641973191707,124.00321021597287],[10.597484061671835,124.00893300011946],[10.59438021525482,124.01913508972635],[10.584146206767056,124.01754009475113],[10.584610172614543,124.01788350078861]],
+    "toHome": [[10.584604552086091,124.01806791660766],[10.58477837890382,124.01749582961888],[10.589772787473347,124.01793663478826],[10.594382582099547,124.01891958228458],[10.596837491847314,124.01131819246535],[10.596988895031929,124.00676050648708],[10.598365640983763,123.99901886070097],[10.599833523030071,123.99598240655766],[10.600605107341153,123.99482580551332],[10.601415172269057,123.9907602314266],[10.605413914743117,123.98721976050896],[10.610879899224171,123.98803796884032],[10.618303119200608,123.9859240061816],[10.617053002972574,123.98568594118797],[10.616703157534022,123.98497234356586],[10.617486496888882,123.9831729190284],[10.617149004599323,123.98104354213959],[10.617040487423594,123.98081757133325],[10.616388778471284,123.98068716380837]]
+  },
+  {
+    "no": 3,
+    "date": "3/19/2026",
+    "name": "Hailey Zara Belamia",
+    "parent": "Ana Marie Belamia",
+    "grade": 3,
+    "section": "St. Anthony De Padua",
+    "address": "Dawis Norte, Carmen, Cebu",
+    "uid": "6KKJPd3m3LOqhvwiZ9olucC6fHi2",
+    "toSchool": [[10.574572697434274,124.01727267160179],[10.574228117572808,124.01737622054728],[10.574570082649279,124.01811870513117],[10.574973941076271,124.01812019880316],[10.575351638115364,124.01912833236324],[10.578127936647505,124.01865982489878],[10.581135211914507,124.01813371648065],[10.584504202007855,124.01748364315898],[10.584623139943288,124.0179171591715]],
+    "toHome": [[10.584676327228106,124.01789064579323],[10.584396047646484,124.01751038433005],[10.581278728383936,124.01803661029331],[10.577219765923251,124.01879500006257],[10.575366046056914,124.01917117416663],[10.574904146286883,124.0181118777785],[10.574284138074695,124.01780271089928],[10.574194614443456,124.01734719825524],[10.574677548043258,124.01712404727898]]
+  },
+  {
+    "no": 4,
+    "date": "3/21/2026",
+    "name": "Alexander P. Carillo",
+    "parent": "Amy Pakson",
+    "grade": 4,
+    "section": "St. Therese of the Child Jesus",
+    "address": "Cabungaan, Catmon, Cebu",
+    "uid": "db50FjDE8ISqbnV2uCmPAVTvibj2",
+    "toSchool": [[10.666560700103222,123.99619381646771],[10.668525198363477,123.99596891435513],[10.66886879624745,123.99884278862038],[10.6699967905527,123.99961187257738],[10.67109488481447,123.99969727096254],[10.671656119359799,124.00055729588829],[10.671646565066663,124.00114668186852],[10.672804805337123,124.00279401658028],[10.674507409507427,124.0047807090355],[10.676229637303095,124.0085479642111],[10.676064014809139,124.01156704512586],[10.678813133853387,124.01456064048519],[10.680148474660266,124.01499539160717],[10.68119834145023,124.0146648298647],[10.680758822094843,124.01568710554243],[10.676962958758038,124.01693806376687],[10.675346270216469,124.01748339411559],[10.671914946306181,124.01994785923664],[10.666877619286529,124.02100584297744],[10.66044046882789,124.0204060035719],[10.655028325759899,124.0219374383152],[10.650803526378981,124.02381126380153],[10.647424356032403,124.02556196809734],[10.645083446394676,124.02624743800682],[10.641193896167982,124.02505909453657],[10.636948115692237,124.02557540662141],[10.635259475728203,124.02723970798577],[10.633538162338242,124.02844443838319],[10.63227942880039,124.02795125920916],[10.62992985864875,124.02762988131536],[10.625323994457295,124.02631336618762],[10.617551802960087,124.027498405037],[10.610783726945867,124.02633181522464],[10.607268567173318,124.02518754860527],[10.597807853408984,124.02065038110216],[10.59165189078649,124.01818955756205],[10.584649570457865,124.01741139096278],[10.584602393404584,124.01803703917054]],
+    "toHome": [[10.584667075269325,124.01797925469123],[10.585072919225297,124.01744379492236],[10.591774362485191,124.0182433025026],[10.599140823897015,124.02155560890476],[10.607221922013077,124.02494862865272],[10.616768310297148,124.02754551256515],[10.623879539299745,124.02655890053751],[10.631667632496454,124.02844798773323],[10.636630070304642,124.02611963820561],[10.645581803205099,124.02646119020561],[10.65972649001896,124.02073901596899],[10.668355065697735,124.02118055082101],[10.674306829865786,124.01876938115187],[10.680566236846667,124.0156653374847],[10.68139264764839,124.0148405053898],[10.67952676674701,124.01493127532468],[10.676585324467116,124.01205158929561],[10.676043164088263,124.00968903436438],[10.675181119985128,124.0062446448646],[10.673017872515224,124.00295199777881],[10.6714263975966,124.00030364739904],[10.668642373526858,123.99794884574621],[10.668466584713007,123.99587313373667],[10.666812405570338,123.99616476893823]]
+  },
+  {
+    "no": 5,
+    "date": "3/23/2026",
+    "name": "Reine Ausrich Maningo",
+    "parent": "Querina B. Maningo",
+    "grade": 4,
+    "section": "St. Therese of the Child Jesus",
+    "address": "Ipil, Carmen, Cebu",
+    "uid": "U9miRjyWjhTm8L92AZlfrxeQTsp1",
+    "toSchool": [[10.579919369559107,123.98948904583858],[10.579535060177873,123.98939341675201],[10.579395459814815,123.98959937698326],[10.579599789696342,123.99053106343142],[10.580155196518362,123.9917750122855],[10.579926284778981,123.993225733036],[10.579404753477819,123.99495679590032],[10.578826310799572,123.99608421885404],[10.578822980154019,123.99686057416316],[10.580372882250373,123.99985386913588],[10.580253756379335,124.00082690003264],[10.58049848469095,124.00351101961641],[10.583305044204321,124.0080770897407],[10.583680485395442,124.01281439711939],[10.584225685098888,124.01746032245315],[10.584727566837888,124.01788323700575]],
+    "toHome": [[10.584596668584663,124.01796948157559],[10.584231141195144,124.01747162982836],[10.584053858903639,124.01515130605812],[10.583517486507139,124.01239781295327],[10.58353579042912,124.01022559130047],[10.583301971942019,124.00941125927173],[10.583297450688045,124.00790941359394],[10.582090664778992,124.00683091079198],[10.580290205845072,124.0031562248131],[10.580032035221198,124.00063894613267],[10.580138136076256,123.99930095949624],[10.578767821986052,123.99672249994103],[10.580001711659651,123.99311175036537],[10.57953043014678,123.99017588564499],[10.57942856016095,123.98963566897241],[10.579822507387119,123.98954018723639]]
+  },
+  {
+    "no": 6,
+    "date": "3/24/2026",
+    "name": "Aquilla Chlauvin Malapitan",
+    "parent": "Chlaudine B. Malapitan",
+    "grade": 6,
+    "section": "St. John of the Cross",
+    "address": "Cantumog, Carmen, Cebu",
+    "uid": "4BxEzjgXkpQ57R4NSAUpNwliFpt2",
+    "toSchool": [[10.601477502619497,123.9959016073468],[10.601173153061787,123.99574011451662],[10.601024685941278,123.99636116541012],[10.599363422386341,123.99644372939366],[10.59906684422053,123.99731296773129],[10.598450257084496,123.99810650285175],[10.598251365584057,124.0004940870116],[10.596594569369802,124.00343351460494],[10.596597695882611,124.0063815922435],[10.597210060203537,124.00770603091775],[10.597301387337227,124.00936149961451],[10.59638501815235,124.0130196727568],[10.594297166084262,124.01892074281297],[10.591739693441804,124.01824477554054],[10.587384222704197,124.01771979251187],[10.584585176281903,124.01751263409761],[10.584654814379572,124.01795211016734]],
+    "toHome": [[10.584659617277946,124.01793778257165],[10.584625183897009,124.01745560959094],[10.590387726405744,124.01798925239157],[10.594221510440237,124.01883149606326],[10.596273325468983,124.01317770711542],[10.597156321827164,124.0092245018832],[10.597017915668221,124.00699789507317],[10.596463725088428,124.00380722145132],[10.59833630521525,123.9990492650786],[10.599171337759355,123.99657996017962],[10.601030508099479,123.99630727564742],[10.601402416871103,123.99589094974044]]
+  },
+  {
+    "no": 7,
+    "date": "3/25/2026",
+    "name": "Celestine Nickol F. Pepito",
+    "parent": "Yanica Marie Pungtod",
+    "grade": 5,
+    "section": "St. Frances De Sales",
+    "address": "Luyang, Carmen, Cebu",
+    "uid": "WQ1zMaVhS4NwZcUm9MXJmpOHAQp1",
+    "toSchool": [[10.599646568075388,124.0228611614426],[10.600069170246513,124.02174799803835],[10.597564947973165,124.02027093169977],[10.593233404286106,124.01848122814671],[10.588750895114048,124.0178414515855],[10.584514131614855,124.0174734946105],[10.584575844585865,124.01792472291969]],
+    "toHome": [[10.584659296807,124.01791362488659],[10.584647942760993,124.01748329764244],[10.58727536805341,124.01769929936981],[10.5896770872089,124.01804013988723],[10.592461106673031,124.01836971773221],[10.595183647492654,124.01922752403298],[10.597689300898779,124.02039693598041],[10.599407164591693,124.02159963927187],[10.600166016411302,124.02184672762881],[10.599701322926071,124.02295185218428]]
+  },
+  {
+    "no": 8,
+    "date": "3/26/2026",
+    "name": "Rayden Reece B. Tigley",
+    "parent": "Reyma Mae B. Tigley",
+    "grade": 5,
+    "section": "St. Frances De Sales",
+    "address": "Corte, Carmen, Cebu",
+    "uid": "lgO811a8n4MQuPQerLx2uCxnsWt1",
+    "toSchool": [[10.599698711559448,123.97119118198611],[10.599338438523054,123.9719558521406],[10.60143189670635,123.97310649682824],[10.602176727611251,123.97277356941711],[10.602514874104967,123.97380455401736],[10.601681829049117,123.97439853682489],[10.601280338000434,123.97519555717511],[10.602861192980528,123.97693493550716],[10.602977417412324,123.97809823753015],[10.602474623361353,123.98041882179021],[10.603821748087157,123.98240094617529],[10.604830778955948,123.98425127489769],[10.60414496697964,123.98488868624726],[10.604313591888525,123.98583773267083],[10.60354599613054,123.98703757563763],[10.603189395150718,123.9897980585491],[10.601020486349077,123.99229887332486],[10.599875437170311,123.99375968423057],[10.601083715420215,123.99594844348266],[10.599234066288524,123.99664019153946],[10.597864942405149,124.00145791124342],[10.596508625302048,124.00355199971162],[10.597216578650805,124.00866522733564],[10.595178884540672,124.01757516059757],[10.594399585570324,124.01872449286627],[10.584661721663034,124.01749166504302],[10.5846157087641,124.01796301622014]],
+    "toHome": [[10.584725076931916,124.01797473088921],[10.584645439935429,124.01750304525666],[10.591824027757198,124.0182539102423],[10.594341534801407,124.01892687858754],[10.596195785960564,124.01345116007923],[10.597218399007895,124.0081106247442],[10.596625108345942,124.0032612465786],[10.598286748176031,124.00027053001162],[10.59887583566706,123.99735848206436],[10.601099872933291,123.99592024188624],[10.599998917621063,123.9936663437696],[10.601944973729148,123.99029993194947],[10.60430772666172,123.98943507045672],[10.60307542585809,123.98884985373847],[10.603899586269621,123.98605874482453],[10.604184779699438,123.98477284634464],[10.604676811131663,123.98246181897615],[10.602508696704696,123.9810678625902],[10.602516939851938,123.9793482822518],[10.60260546313816,123.97653395640894],[10.601306974888253,123.9748384369844],[10.602224319591235,123.97283595630482],[10.599171082205004,123.9719559581232],[10.599595582359413,123.97121783102037]]
+  },
+  {
+    "no": 9,
+    "date": "3/27/2026",
+    "name": "Shannah Sofhia N. Buot",
+    "parent": "Liza Buot",
+    "grade": 5,
+    "section": "St. Frances De Sales",
+    "address": "Dawis Sur, Carmen, Cebu",
+    "uid": "xfqUgnESaTZpDKLMsWMvk51loi23",
+    "toSchool": [[10.579790556338898,124.01214681901426],[10.580234724778109,124.01229830263755],[10.579847572648626,124.01404149100686],[10.57928257893146,124.01577061000344],[10.578978385386153,124.01853958542578],[10.582763186024575,124.01760797670582],[10.584605492659097,124.01750042697294],[10.584646725001972,124.01780996214129]],
+    "toHome": [[10.584680208363377,124.01789752181976],[10.584681571023419,124.01751849748312],[10.582813155944931,124.01755643297571],[10.578918054575137,124.01859997061617],[10.579364996952977,124.0163969036571],[10.579811509032275,124.01391553178183],[10.580177931108812,124.0121987810743],[10.57959357263509,124.01222910929467]]
+  },
+  {
+    "no": 10,
+    "date": "3/28/2026",
+    "name": "Derrick Gabe J. Leones",
+    "parent": "Myla Grace J. Leones",
+    "grade": 6,
+    "section": "St. John of the Cross",
+    "address": "Cantumog, Carmen, Cebu",
+    "uid": "608CD1iZNohQcrijkpQ9OqYbaZQ2",
+    "toSchool": [[10.594437046951121,124.00902607054685],[10.59504435263195,124.00976464522556],[10.594899922999511,124.01067545665715],[10.594541958285967,124.01189455261184],[10.595566378972773,124.01252757382898],[10.59637141365652,124.01291273274724],[10.595999876988015,124.0140775673726],[10.595249833929003,124.01629906911135],[10.594342537486703,124.01886337821782],[10.59275330999019,124.01846061824911],[10.591458757884647,124.01814971722996],[10.588793335918266,124.0178578441904],[10.58717106028618,124.0175863639156],[10.585339850599079,124.01746212923497],[10.58460777543025,124.01787686484019]],
+    "toHome": [[10.584578610572304,124.01795209231312],[10.584612409294445,124.01754487356621],[10.587032039473733,124.01764288890858],[10.589987825518275,124.01801546403699],[10.594311381178589,124.01884929178115],[10.595933741556834,124.01398726090113],[10.596391403790227,124.01277856236234],[10.594516515882722,124.01188140887095],[10.594378659085748,124.00892270892538]]
+  },
+  {
+    "no": 11,
+    "date": "3/30/2026",
+    "name": "Sten Cairo Tigbao",
+    "parent": "Rolie Tigbao",
+    "grade": 2,
+    "section": "St. Albert",
+    "address": "Cogon West, Carmen, Cebu",
+    "uid": "iYTKUOs57SgUIPBNuYXYqQe6mM63",
+    "toSchool": [[10.594395949707282,124.01562675691794],[10.593672991336192,124.01537686376915],[10.593523911933309,124.01610300892807],[10.593328634436737,124.01707020061845],[10.592935076147713,124.01851256347898],[10.587890889781209,124.0177376159759],[10.584481182896651,124.01751888479174],[10.584573893952545,124.01799083060074]],
+    "toHome": [[10.584634028511326,124.01795206953035],[10.584782272828699,124.01750475383729],[10.589881068136174,124.0180624470849],[10.592914686684908,124.01851420773748],[10.593490372822863,124.01631687491772],[10.594083979794846,124.01616483150887],[10.594043953639968,124.0164461510238]]
+  },
+  {
+    "no": 12,
+    "date": "3/31/2026",
+    "name": "Andrea Jahnelle Enarle",
+    "parent": "Anabelle Enarle",
+    "grade": 2,
+    "section": "St. Albert",
+    "address": "Poblacion, Carmen, Cebu",
+    "uid": "r1rtWfcPbENzNlhThm0zxJra2Fq1",
+    "toSchool": [[10.58311383606934,124.00824155624447],[10.583367712804577,124.00858438089162],[10.583424696395582,124.00984232422967],[10.58352045818374,124.01211280219772],[10.584014108984553,124.01427868316388],[10.58427302923967,124.01754713883193],[10.584737942841436,124.01749901551352],[10.58468062081258,124.01803240657732]],
+    "toHome": [[10.584716954047249,124.01803194501497],[10.584444455597708,124.01743590674143],[10.584185740931357,124.01752601650996],[10.583719853260892,124.01321354576793],[10.583515282680915,124.01080995110087],[10.583279187355158,124.00849610777549],[10.582934665817739,124.00920328653751]]
+  },
+  {
+    "no": 13,
+    "date": "4/1/2026",
+    "name": "Raimon Rhey Arendain",
+    "parent": "Rhea Arendain",
+    "grade": 3,
+    "section": "St. Anthony De Padua",
+    "address": "Cogon West, Carmen, Cebu",
+    "uid": "tF4dmmuC0oS3hMoB3XCeqZN4a652",
+    "toSchool": [[10.594020471798821,124.01588838241739],[10.593695926963662,124.01613130859448],[10.593372904464006,124.01681102262634],[10.592926365246218,124.01856816871945],[10.588061125359928,124.01778891600665],[10.58454226327475,124.01748193009013],[10.584662362132844,124.01804547231836]],
+    "toHome": [[10.584699625833416,124.01797822329694],[10.584665780268981,124.01752884248809],[10.587468655266301,124.01772774926621],[10.587674080873507,124.01775574064347],[10.591673372567836,124.01819464544205],[10.592962033944149,124.01858631020805],[10.593545232633376,124.01615082488956],[10.594060275148781,124.01575479273299]]
+  },
+  {
+    "no": 14,
+    "date": "4/6/2026",
+    "name": "John Reyven Molina",
+    "parent": "Jhoanna Mae Molina",
+    "grade": 3,
+    "section": "St. Anthony De Padua",
+    "address": "Cogon West, Carmen, Cebu",
+    "uid": "9e9jmjgA9UaDAfGdaFU3xYdIeHf1",
+    "toSchool": [[10.594774890673207,124.01671562819014],[10.594870159826012,124.01739488282432],[10.594316246640116,124.01884092377063],[10.591774754836864,124.01823092538628],[10.588945601325493,124.01788330036902],[10.584320249512338,124.0174782793122],[10.584572234554193,124.0178871082161]],
+    "toHome": [[10.584588202752235,124.01800118284164],[10.584817221665723,124.01747021771409],[10.588585052376311,124.0179995665044],[10.594386390257842,124.01878912531042],[10.594958884336055,124.01703364097968],[10.594801809362446,124.01673062933531]]
+  },
+  {
+    "no": 15,
+    "date": "4/7/2026",
+    "name": "Paolo Nino Bustamante",
+    "parent": "Nina Isabel Bustamante",
+    "grade": 4,
+    "section": "St. Therese of the Child Jesus",
+    "address": "Dawis Norte, Carmen, Cebu",
+    "uid": "JD8ph7PmCIeqJGR7k5p59tAmDK23",
+    "toSchool": [[10.576276288656492,124.0160427687396],[10.577830920584198,124.01624797268],[10.578178769116631,124.01869428188546],[10.584475199324904,124.01750827036813],[10.584556023910547,124.01792050367393]],
+    "toHome": [[10.584674974091751,124.01803955802458],[10.584634336207994,124.01751851113],[10.57824777115704,124.0187505511078],[10.577819103044265,124.01608987096766],[10.576161887240525,124.01605996157635]]
+  },
+  {
+    "no": 16,
+    "date": "4/8/2026",
+    "name": "Leevan Gonzales",
+    "parent": "Aleah Gonzales",
+    "grade": 6,
+    "section": "St. John of the Cross",
+    "address": "Poblacion, Carmen, Cebu",
+    "uid": "eN1BsyVWWeQcUaAsqOjoG7hKzdt1",
+    "toSchool": [[10.58195394819344,124.02273317079589],[10.581226175544957,124.0211472665962],[10.580647590099586,124.01935414372402],[10.581542039464635,124.0180253285683],[10.584388498974706,124.01733213065154],[10.584451588588024,124.01746329253717],[10.584688705753269,124.01803239723311]],
+    "toHome": [[10.584739478511883,124.01800811432922],[10.584587447763589,124.01755633267241],[10.583311424098854,124.01740514117722],[10.58147649092088,124.01794931834469],[10.580700432258421,124.01936197207057],[10.581433903292906,124.02190496580803],[10.582009079530593,124.02259862262083],[10.581948370989691,124.02272373077048]]
+  },
 ];
 
 const SCHOOL = { lat: 10.584591740218444, lng: 124.01779850502602 };
 const DEVICE_CODE = "DEVICE1234";
-const INTERVAL_MS = 120000; // 2 minutes
+const INTERVAL_MS = 120000;
 
-// ── State ─────────────────────────────────────────────────────
-let generatedLogs = [];
-let selectedStudent = null;
+// ── CRITICAL: use window. so the module script can access these ──
+window.generatedLogs = [];
+window.selectedStudent = null;
 let mapInstance = null;
 let routeLayer = null;
 let markerLayer = null;
 
-// ── Init map ──────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  mapInstance = L.map('map', { zoomControl: true }).setView([10.5, 124.0], 11);
+  mapInstance = L.map('map', { zoomControl: true }).setView([10.58, 124.01], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 18,
+    attribution: '© OpenStreetMap', maxZoom: 18,
   }).addTo(mapInstance);
 
-  // Populate dropdown
   const sel = document.getElementById('studentSelect');
   STUDENTS.forEach(s => {
     const opt = document.createElement('option');
@@ -530,345 +343,85 @@ window.addEventListener('DOMContentLoaded', () => {
     opt.textContent = `#${s.no} — ${s.name} (${s.date})`;
     sel.appendChild(opt);
   });
-
-  log('SafeTrack Data Recorder initialized', 'success');
-  log(`${STUDENTS.length} students loaded`, 'info');
+  log('SafeTrack Data Recorder v2 initialized', 'success');
+  log(`${STUDENTS.length} students with real waypoints loaded`, 'info');
 });
 
-// ── Student change ────────────────────────────────────────────
 window.onStudentChange = () => {
   const val = document.getElementById('studentSelect').value;
   if (!val) return;
+  window.selectedStudent = STUDENTS.find(s => s.no == val); // ← window.
+  if (!window.selectedStudent) return;
 
-  selectedStudent = STUDENTS.find(s => s.no == val);
-  if (!selectedStudent) return;
-
-  document.getElementById('homeLat').value = selectedStudent.homeLat;
-  document.getElementById('homeLng').value = selectedStudent.homeLng;
-
-  const info = document.getElementById('studentInfo');
-  info.classList.add('visible');
-  document.getElementById('infoName').textContent = selectedStudent.name;
+  document.getElementById('studentInfo').classList.add('visible');
+  document.getElementById('infoName').textContent = window.selectedStudent.name;
   document.getElementById('infoDetails').textContent =
-    `Grade ${selectedStudent.grade} · ${selectedStudent.section}\n` +
-    `${selectedStudent.address}\n` +
-    `Parent: ${selectedStudent.parent}\n` +
-    `Date: ${selectedStudent.date}\n` +
-    `UID: ${selectedStudent.uid.substring(0,12)}...`;
+    `Grade ${window.selectedStudent.grade} · ${window.selectedStudent.section}\n` +
+    `${window.selectedStudent.address}\n` +
+    `Parent: ${window.selectedStudent.parent}\n` +
+    `Date: ${window.selectedStudent.date}\n` +
+    `UID: ${window.selectedStudent.uid.substring(0,12)}...`;
+  document.getElementById('infoWp').textContent =
+    `${window.selectedStudent.toSchool.length} wp → school · ${window.selectedStudent.toHome.length} wp → home`;
 
-  generatedLogs = [];
+  window.generatedLogs = []; // ← window.
   document.getElementById('btnWrite').disabled = true;
   document.getElementById('btnExport').disabled = true;
   resetStats();
 
-  log(`Student selected: ${selectedStudent.name}`, 'info');
-  log(`Date: ${selectedStudent.date} | UID: ${selectedStudent.uid.substring(0,8)}...`, 'muted');
+  log(`Selected: ${window.selectedStudent.name}`, 'info');
+  log(`Route: ${window.selectedStudent.toSchool.length} waypoints to school, ${window.selectedStudent.toHome.length} back`, 'muted');
   previewRoute();
 };
 
-// ── Preview route ─────────────────────────────────────────────
-window.previewRoute = () => {
-  if (!mapInstance) return;
-  const homeLat = parseFloat(document.getElementById('homeLat').value);
-  const homeLng = parseFloat(document.getElementById('homeLng').value);
-  if (isNaN(homeLat) || isNaN(homeLng)) return;
-
+function previewRoute() {
+  if (!mapInstance || !window.selectedStudent) return;
   if (routeLayer) mapInstance.removeLayer(routeLayer);
   if (markerLayer) mapInstance.removeLayer(markerLayer);
 
-  const homeIcon = L.divIcon({ html:'🏠', className:'', iconSize:[24,24] });
+  const toSchoolCoords = window.selectedStudent.toSchool;
+  const toHomeCoords   = window.selectedStudent.toHome;
+
+  const homeIcon   = L.divIcon({ html:'🏠', className:'', iconSize:[24,24] });
   const schoolIcon = L.divIcon({ html:'🏫', className:'', iconSize:[24,24] });
 
+  const firstPt = toSchoolCoords[0];
+
   markerLayer = L.layerGroup([
-    L.marker([homeLat, homeLng], {icon: homeIcon}).bindPopup('Home'),
+    L.marker([firstPt[0], firstPt[1]], {icon: homeIcon}).bindPopup('Home (Morning Start)'),
     L.marker([SCHOOL.lat, SCHOOL.lng], {icon: schoolIcon}).bindPopup('Academia de San Agustin'),
   ]).addTo(mapInstance);
 
-  routeLayer = L.polyline(
-    [[homeLat, homeLng], [SCHOOL.lat, SCHOOL.lng]],
-    { color: '#3b82f6', weight: 2, dashArray: '6,4', opacity: 0.7 }
-  ).addTo(mapInstance);
+  routeLayer = L.layerGroup([
+    L.polyline(toSchoolCoords.map(p => [p[0],p[1]]),
+      { color: '#3b82f6', weight: 2.5, dashArray: '6,4', opacity: 0.8 }).bindPopup('Morning Route'),
+    L.polyline(toHomeCoords.map(p => [p[0],p[1]]),
+      { color: '#f59e0b', weight: 2.5, dashArray: '6,4', opacity: 0.8 }).bindPopup('Afternoon Route'),
+  ]).addTo(mapInstance);
 
-  mapInstance.fitBounds([[homeLat, homeLng], [SCHOOL.lat, SCHOOL.lng]], { padding: [40, 40] });
-};
+  const allCoords = [...toSchoolCoords, ...toHomeCoords];
+  mapInstance.fitBounds(L.polyline(allCoords.map(p => [p[0],p[1]])).getBounds(), { padding:[40,40] });
+}
 
-// ── Interpolate GPS path ──────────────────────────────────────
-function interpolatePath(lat1, lng1, lat2, lng2, steps) {
+function interpolateWaypoints(waypoints, stepsPerSegment) {
   const points = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    // Add small random noise for realism (±0.0003 deg ≈ ±33m)
-    const noise = () => (Math.random() - 0.5) * 0.0006;
-    points.push({
-      lat: lat1 + (lat2 - lat1) * t + noise(),
-      lng: lng1 + (lng2 - lng1) * t + noise(),
-    });
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const a = waypoints[i];
+    const b = waypoints[i + 1];
+    for (let s = 0; s < stepsPerSegment; s++) {
+      const t = s / stepsPerSegment;
+      const noise = () => (Math.random() - 0.5) * 0.0004;
+      points.push({
+        lat: a[0] + (b[0] - a[0]) * t + noise(),
+        lng: a[1] + (b[1] - a[1]) * t + noise(),
+      });
+    }
   }
+  const last = waypoints[waypoints.length - 1];
+  points.push({ lat: last[0], lng: last[1] });
   return points;
 }
 
-// ── Date string to timestamp (PHT = UTC+8) ───────────────────
-function dateToTimestamp(dateStr, hour, minute) {
-  const [m, d, y] = dateStr.split('/').map(Number);
-  // Don't convert to UTC manually — just store PHT as UTC+8 offset
-  const utc = Date.UTC(y, m - 1, d, hour, minute, 0) - (8 * 60 * 60 * 1000);
-  return utc;
-}
-
-// ── Generate full day ─────────────────────────────────────────
-window.generateSession = async () => {
-  if (!selectedStudent) {
-    log('Please select a student first', 'error');
-    return;
-  }
-
-  const homeLat  = parseFloat(document.getElementById('homeLat').value);
-  const homeLng  = parseFloat(document.getElementById('homeLng').value);
-  const startBat = parseInt(document.getElementById('batterySlider').value);
-  const dropout  = parseInt(document.getElementById('dropoutChance').value) / 100;
-  const speedKmh = parseFloat(document.getElementById('speedKmh').value);
-
-  generatedLogs = [];
-  document.getElementById('recordingBadge').classList.add('visible');
-  document.getElementById('btnGenerate').disabled = true;
-
-  log('─────────────────────────────', 'muted');
-  log(`Generating: ${selectedStudent.name}`, 'info');
-  log(`Date: ${selectedStudent.date}`, 'muted');
-
-  const date = selectedStudent.date;
-
-  // ── Phase timings ──────────────────────────────────────────
-  // Morning commute: 07:30 → ~08:00 (tricycle/motorcycle)
-  // School hours: 08:00 → 15:30 (stationary near school)
-  // Afternoon return: 15:30 → ~16:10
-
-  // Distance home→school in km (rough Haversine)
-  const distKm = haversineDist(homeLat, homeLng, SCHOOL.lat, SCHOOL.lng);
-  const travelMinutes = Math.round((distKm / speedKmh) * 60);
-
-  log(`Home→School distance: ${distKm.toFixed(1)} km`, 'muted');
-  log(`Estimated travel: ~${travelMinutes} min at ${speedKmh} km/h`, 'muted');
-
-  // Morning commute steps (one GPS ping every 2 min)
-  const morningSteps = Math.max(3, Math.round(travelMinutes / 2));
-  const morningPath  = interpolatePath(homeLat, homeLng, SCHOOL.lat, SCHOOL.lng, morningSteps);
-
-  // School hours: 08:00 → 15:30 = 450 min → 225 pings (every 2 min)
-  const schoolMinutes = 450;
-  const schoolPings   = Math.floor(schoolMinutes / 2);
-
-  // Afternoon return steps
-  const afternoonPath = interpolatePath(SCHOOL.lat, SCHOOL.lng, homeLat, homeLng, morningSteps);
-
-  let currentMs  = dateToTimestamp(date, 7, 30); // 07:30 PHT
-  let battery    = startBat;
-  let entryCount = 0;
-  const totalEntries = morningSteps + schoolPings + morningSteps;
-
-  // ── MORNING COMMUTE ────────────────────────────────────────
-  log('Phase 1: Morning commute (07:30)', 'info');
-  for (let i = 0; i < morningPath.length; i++) {
-    const pt    = morningPath[i];
-    const isGps = Math.random() > dropout;
-    const speed = isGps ? (speedKmh * 0.7 + Math.random() * speedKmh * 0.6) : 0;
-    battery     = clampBattery(battery - 0.05, startBat);
-
-    generatedLogs.push({
-      latitude:    parseFloat(pt.lat.toFixed(6)),
-      longitude:   parseFloat(pt.lng.toFixed(6)),
-      altitude:    parseFloat((15 + Math.random() * 20).toFixed(1)),
-      speed:       parseFloat(speed.toFixed(1)),
-      accuracy:    isGps ? 5.0 : 50.0,
-      locationType:isGps ? 'gps' : 'cached',
-      sos:         false,
-      batteryLevel:Math.round(battery),
-      timestamp:   currentMs,
-      lastUpdate:  currentMs,
-    });
-
-    currentMs  += INTERVAL_MS;
-    entryCount++;
-    updateProgress(entryCount, totalEntries, Math.round(battery), 'COMMUTE');
-  }
-
-  // Arrive at school ~08:00–08:15
-  // Adjust currentMs to 08:00 if commute was short
-  const arrivalMs = dateToTimestamp(date, 8, 0);
-  if (currentMs < arrivalMs) currentMs = arrivalMs;
-
-  // ── SCHOOL HOURS ───────────────────────────────────────────
-  log('Phase 2: School hours (08:00–15:30)', 'info');
-  for (let i = 0; i < schoolPings; i++) {
-    const isGps  = Math.random() > dropout;
-    // Stationary near school — tiny jitter
-    const jitter = () => (Math.random() - 0.5) * 0.0003;
-    battery      = clampBattery(battery - 0.04, startBat);
-
-    generatedLogs.push({
-      latitude:    parseFloat((SCHOOL.lat + jitter()).toFixed(6)),
-      longitude:   parseFloat((SCHOOL.lng + jitter()).toFixed(6)),
-      altitude:    parseFloat((10 + Math.random() * 5).toFixed(1)),
-      speed:       0.0,
-      accuracy:    isGps ? 5.0 : 50.0,
-      locationType:isGps ? 'gps' : 'cached',
-      sos:         false,
-      batteryLevel:Math.round(battery),
-      timestamp:   currentMs,
-      lastUpdate:  currentMs,
-    });
-
-    currentMs  += INTERVAL_MS;
-    entryCount++;
-    if (i % 30 === 0) updateProgress(entryCount, totalEntries, Math.round(battery), 'SCHOOL');
-  }
-
-  // ── AFTERNOON RETURN ───────────────────────────────────────
-  log('Phase 3: Afternoon return (15:30)', 'info');
-  currentMs = dateToTimestamp(date, 15, 30);
-  for (let i = 0; i < afternoonPath.length; i++) {
-    const pt    = afternoonPath[i];
-    const isGps = Math.random() > dropout;
-    const speed = isGps ? (speedKmh * 0.7 + Math.random() * speedKmh * 0.6) : 0;
-    battery     = clampBattery(battery - 0.05, startBat);
-
-    generatedLogs.push({
-      latitude:    parseFloat(pt.lat.toFixed(6)),
-      longitude:   parseFloat(pt.lng.toFixed(6)),
-      altitude:    parseFloat((15 + Math.random() * 20).toFixed(1)),
-      speed:       parseFloat(speed.toFixed(1)),
-      accuracy:    isGps ? 5.0 : 50.0,
-      locationType:isGps ? 'gps' : 'cached',
-      sos:         false,
-      batteryLevel:Math.round(battery),
-      timestamp:   currentMs,
-      lastUpdate:  currentMs,
-    });
-
-    currentMs  += INTERVAL_MS;
-    entryCount++;
-    updateProgress(entryCount, totalEntries, Math.round(battery), 'RETURN');
-  }
-
-  // ── Draw path on map ───────────────────────────────────────
-  drawGeneratedPath();
-
-  document.getElementById('recordingBadge').classList.remove('visible');
-  document.getElementById('btnGenerate').disabled = false;
-  document.getElementById('btnWrite').disabled = false;
-  document.getElementById('btnExport').disabled = false;
-
-  log(`✓ Generated ${generatedLogs.length} entries`, 'success');
-  log(`Battery: ${startBat}% → ${Math.round(battery)}%`, 'muted');
-  log('Ready to write to Firebase', 'success');
-};
-
-// ── Draw generated path ───────────────────────────────────────
-function drawGeneratedPath() {
-  if (!mapInstance) return;
-  if (routeLayer) mapInstance.removeLayer(routeLayer);
-
-  const coords = generatedLogs.map(l => [l.latitude, l.longitude]);
-
-  routeLayer = L.layerGroup([
-    L.polyline(coords, { color: '#10b981', weight: 2, opacity: 0.8 }),
-    L.circleMarker(coords[0], { radius: 6, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).bindPopup('Start (Home)'),
-    L.circleMarker(coords[coords.length - 1], { radius: 6, color: '#10b981', fillColor: '#10b981', fillOpacity: 1 }).bindPopup('End'),
-  ]).addTo(mapInstance);
-
-  mapInstance.fitBounds(L.polyline(coords).getBounds(), { padding: [30, 30] });
-}
-
-// ── Write to Firebase ─────────────────────────────────────────
-window.writeToFirebase = async () => {
-  if (!generatedLogs.length || !selectedStudent) return;
-
-  document.getElementById('btnWrite').disabled = true;
-  document.getElementById('recordingBadge').classList.add('visible');
-  log('─────────────────────────────', 'muted');
-  log(`Writing ${generatedLogs.length} entries to Firebase...`, 'info');
-
-  const uid  = selectedStudent.uid;
-  const path = `deviceLogs/${uid}/${DEVICE_CODE}`;
-  let written = 0;
-  let errors  = 0;
-
-  for (const entry of generatedLogs) {
-    try {
-      const dbRef = ref(db, path);
-      await push(dbRef, entry);
-      written++;
-      if (written % 20 === 0) {
-        log(`Written ${written}/${generatedLogs.length}...`, 'muted');
-      }
-    } catch (e) {
-      errors++;
-      log(`Error: ${e.message}`, 'error');
-    }
-  }
-
-  // ── Write deviceStatus ─────────────────────────────────────
-  const lastLog = generatedLogs[generatedLogs.length - 1];
-  try {
-    const statusRef = ref(db, `linkedDevices/${uid}/devices/${DEVICE_CODE}/deviceStatus`);
-    await set(statusRef, {
-      batteryLevel: lastLog.batteryLevel,
-      sos: false,
-      lastUpdate:   lastLog.lastUpdate,
-      lastLocation: {
-        latitude:  lastLog.latitude,
-        longitude: lastLog.longitude,
-        altitude:  lastLog.altitude,
-      },
-    });
-    log('✓ deviceStatus written', 'success');
-  } catch (e) {
-    log(`deviceStatus error: ${e.message}`, 'error');
-  }
-
-  document.getElementById('recordingBadge').classList.remove('visible');
-  document.getElementById('btnWrite').disabled = false;
-
-  if (errors === 0) {
-    log(`✓ ALL ${written} entries written successfully!`, 'success');
-    log(`Path: deviceLogs/${uid.substring(0,8)}.../${DEVICE_CODE}`, 'muted');
-  } else {
-    log(`${written} written, ${errors} errors`, 'warn');
-  }
-};
-
-// ── Export JSON ───────────────────────────────────────────────
-window.exportJSON = () => {
-  if (!generatedLogs.length) return;
-  const data = JSON.stringify({
-    student: selectedStudent.name,
-    uid: selectedStudent.uid,
-    date: selectedStudent.date,
-    device: DEVICE_CODE,
-    entries: generatedLogs,
-  }, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `safetrack_${selectedStudent.uid.substring(0,8)}_${selectedStudent.date.replace(/\//g,'-')}.json`;
-  a.click();
-  log('JSON exported', 'success');
-};
-
-// ── Reset ─────────────────────────────────────────────────────
-window.resetSession = () => {
-  generatedLogs = [];
-  if (routeLayer) { mapInstance.removeLayer(routeLayer); routeLayer = null; }
-  if (markerLayer) { mapInstance.removeLayer(markerLayer); markerLayer = null; }
-  document.getElementById('btnWrite').disabled = true;
-  document.getElementById('btnExport').disabled = true;
-  document.getElementById('studentSelect').value = '';
-  document.getElementById('studentInfo').classList.remove('visible');
-  resetStats();
-  log('Session reset', 'muted');
-};
-
-// ── Helpers ───────────────────────────────────────────────────
 function haversineDist(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -878,8 +431,341 @@ function haversineDist(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.asin(Math.sqrt(a));
 }
 
+function totalRouteDistKm(waypoints) {
+  let d = 0;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    d += haversineDist(waypoints[i][0], waypoints[i][1], waypoints[i+1][0], waypoints[i+1][1]);
+  }
+  return d;
+}
+
+function dateToTimestamp(dateStr, hour, minute) {
+  const [m, d, y] = dateStr.split('/').map(Number);
+  return Date.UTC(y, m - 1, d, hour, minute, 0) - (8 * 60 * 60 * 1000);
+}
+
 function clampBattery(val, startBat) {
   return Math.max(56, Math.min(startBat, val));
+}
+
+window.generateSession = async () => {
+  if (!window.selectedStudent) { log('Please select a student first', 'error'); return; }
+
+  const startBat = parseInt(document.getElementById('batterySlider').value);
+  const dropout  = parseInt(document.getElementById('dropoutChance').value) / 100;
+  const baseSpeedKmh = parseFloat(document.getElementById('speedKmh').value);
+
+  window.generatedLogs = [];
+  document.getElementById('recordingBadge').classList.add('visible');
+  document.getElementById('btnGenerate').disabled = true;
+
+  log('─────────────────────────────', 'muted');
+  log(`Generating: ${window.selectedStudent.name}`, 'info');
+  log(`Date: ${window.selectedStudent.date}`, 'muted');
+
+  const date = window.selectedStudent.date;
+
+  // ── Realistic per-student random variations ──────────────────
+  // Wake up: random between 5:00–6:00 AM
+  const wakeHour   = 5;
+  const wakeMinute = Math.floor(Math.random() * 60); // 5:00–5:59
+  log(`Wake-up time: ${String(wakeHour).padStart(2,'0')}:${String(wakeMinute).padStart(2,'0')} AM`, 'muted');
+
+  // Departure: random between 6:00–7:00 AM
+  const departHour   = 6;
+  const departMinute = Math.floor(Math.random() * 60); // 6:00–6:59
+  log(`Departure time: ${String(departHour).padStart(2,'0')}:${String(departMinute).padStart(2,'0')} AM`, 'muted');
+
+  // Occasional late arrival — 20% chance student arrives after 7:30 AM
+  const isLate = Math.random() < 0.20;
+  if (isLate) log('⚠ Late arrival scenario activated', 'warn');
+
+  // Occasional early dismissal — 10% chance student leaves at 3:00 PM instead of 3:30
+  const isEarlyDismissal = Math.random() < 0.10;
+  const dismissalMinute  = isEarlyDismissal ? 0 : 30; // 3:00 or 3:30
+  if (isEarlyDismissal) log('⚠ Early dismissal scenario activated', 'warn');
+
+  // Traffic simulation — randomize speed ±30% per commute leg
+  const morningSpeed   = baseSpeedKmh * (0.7 + Math.random() * 0.6);
+  const afternoonSpeed = baseSpeedKmh * (0.7 + Math.random() * 0.6);
+  log(`Morning speed: ${morningSpeed.toFixed(1)} km/h | Afternoon: ${afternoonSpeed.toFixed(1)} km/h`, 'muted');
+
+  // After-school wait: 5–15 min random
+  const waitMinutes = 5 + Math.floor(Math.random() * 11);
+  log(`After-school wait: ${waitMinutes} min`, 'muted');
+
+  // ── Route distances ──────────────────────────────────────────
+  const distToSchool = totalRouteDistKm(window.selectedStudent.toSchool);
+  const distToHome   = totalRouteDistKm(window.selectedStudent.toHome);
+  const travelMinMorning   = Math.max(5, Math.round((distToSchool / morningSpeed) * 60));
+  const travelMinAfternoon = Math.max(5, Math.round((distToHome   / afternoonSpeed) * 60));
+
+  log(`To school: ${distToSchool.toFixed(1)} km → ~${travelMinMorning} min`, 'muted');
+  log(`To home:   ${distToHome.toFixed(1)} km → ~${travelMinAfternoon} min`, 'muted');
+
+  const morningSegs   = window.selectedStudent.toSchool.length - 1;
+  const afternoonSegs = window.selectedStudent.toHome.length - 1;
+  const morningPings  = Math.max(4, Math.round(travelMinMorning / 2));
+  const afternoonPings = Math.max(4, Math.round(travelMinAfternoon / 2));
+  const morningStepsPerSeg   = Math.max(1, Math.round(morningPings / morningSegs));
+  const afternoonStepsPerSeg = Math.max(1, Math.round(afternoonPings / afternoonSegs));
+
+  const morningPath   = interpolateWaypoints(window.selectedStudent.toSchool, morningStepsPerSeg);
+  const afternoonPath = interpolateWaypoints(window.selectedStudent.toHome,   afternoonStepsPerSeg);
+
+  // ── Phase timing ─────────────────────────────────────────────
+  // Phase 0: Idle at home        → wakeHour:wakeMinute to departHour:departMinute
+  // Phase 1: Morning commute     → departHour:departMinute (moving)
+  // Phase 2: Waiting at school   → after arrival, before 7:30 (or late: 7:30–8:00)
+  // Phase 3: School hours        → 7:30 AM (or late arrival) to dismissal
+  // Phase 4: After-school wait   → dismissal + waitMinutes (stationary at school)
+  // Phase 5: Afternoon commute   → travel home
+
+  // School hours: from 7:30 AM to dismissal
+  const schoolStartMs  = dateToTimestamp(date, 7, 30);
+  const dismissalMs    = dateToTimestamp(date, 15, dismissalMinute);
+  const schoolMinutes  = Math.round((dismissalMs - schoolStartMs) / 60000);
+  const schoolPings    = Math.floor(schoolMinutes / 2);
+
+  const totalEntries = 
+    Math.ceil((departHour * 60 + departMinute - wakeHour * 60 - wakeMinute) / 2) + // idle
+    morningPath.length +   // commute
+    (isLate ? 0 : Math.ceil(15 / 2)) + // pre-class wait (skip if late)
+    schoolPings +          // school hours
+    Math.ceil(waitMinutes / 2) + // after-school wait
+    afternoonPath.length;  // return
+
+  let currentMs = dateToTimestamp(date, wakeHour, wakeMinute);
+  let battery   = startBat;
+  let count     = 0;
+
+  // ── PHASE 0: Idle at home (wake up → departure) ──────────────
+  log(`Phase 0: Idle at home (${wakeHour}:${String(wakeMinute).padStart(2,'0')} → ${departHour}:${String(departMinute).padStart(2,'0')})`, 'info');
+  const departMs = dateToTimestamp(date, departHour, departMinute);
+
+  while (currentMs < departMs) {
+    const isGps  = Math.random() > dropout;
+    const jitter = () => (Math.random() - 0.5) * 0.0002; // tiny idle jitter
+    const homePt = window.selectedStudent.toSchool[0];
+    battery = clampBattery(battery - 0.02, startBat); // slow drain while idle
+
+    window.generatedLogs.push({
+      latitude:    parseFloat((homePt[0] + jitter()).toFixed(6)),
+      longitude:   parseFloat((homePt[1] + jitter()).toFixed(6)),
+      altitude:    parseFloat((8 + Math.random() * 5).toFixed(1)),
+      speed:       0.0,
+      accuracy:    isGps ? 5.0 : 50.0,
+      locationType:isGps ? 'gps' : 'cached',
+      sos:         false,
+      batteryLevel:Math.round(battery),
+      timestamp:   currentMs,
+      lastUpdate:  currentMs,
+    });
+    currentMs += INTERVAL_MS;
+    count++;
+    updateProgress(count, totalEntries, Math.round(battery), 'IDLE');
+  }
+
+  // ── Delay departure if student would arrive before 7:00 AM ───
+  const minArrivalMs      = dateToTimestamp(date, 7, 0);
+  const expectedArrivalMs = currentMs + (travelMinMorning * 60000);
+
+  if (expectedArrivalMs < minArrivalMs) {
+    const adjustedDepartMs = minArrivalMs - (travelMinMorning * 60000);
+    log(`Short route — staying home until ${new Date(adjustedDepartMs).toLocaleTimeString('en-PH')}`, 'muted');
+
+    while (currentMs < adjustedDepartMs) {
+      const isGps  = Math.random() > dropout;
+      const jitter = () => (Math.random() - 0.5) * 0.0002;
+      const homePt = window.selectedStudent.toSchool[0];
+      battery = clampBattery(battery - 0.02, startBat);
+
+      window.generatedLogs.push({
+        latitude:    parseFloat((homePt[0] + jitter()).toFixed(6)),
+        longitude:   parseFloat((homePt[1] + jitter()).toFixed(6)),
+        altitude:    parseFloat((8 + Math.random() * 5).toFixed(1)),
+        speed:       0.0,
+        accuracy:    isGps ? 5.0 : 50.0,
+        locationType:isGps ? 'gps' : 'cached',
+        sos:         false,
+        batteryLevel:Math.round(battery),
+        timestamp:   currentMs,
+        lastUpdate:  currentMs,
+      });
+      currentMs += INTERVAL_MS;
+      count++;
+      updateProgress(count, totalEntries, Math.round(battery), 'IDLE');
+    }
+  }
+
+  // ── PHASE 1: Morning commute ──────────────────────────────────
+  log(`Phase 1: Morning commute (${morningPath.length} pings, ${morningSpeed.toFixed(1)} km/h)`, 'info');
+  for (const pt of morningPath) {
+    const isGps = Math.random() > dropout;
+    const spd   = isGps ? parseFloat((morningSpeed * 0.6 + Math.random() * morningSpeed * 0.5).toFixed(1)) : 0;
+    battery = clampBattery(battery - 0.05, startBat);
+
+    window.generatedLogs.push({
+      latitude:    parseFloat(pt.lat.toFixed(6)),
+      longitude:   parseFloat(pt.lng.toFixed(6)),
+      altitude:    parseFloat((10 + Math.random() * 25).toFixed(1)),
+      speed:       spd,
+      accuracy:    isGps ? 5.0 : 50.0,
+      locationType:isGps ? 'gps' : 'cached',
+      sos:         false,
+      batteryLevel:Math.round(battery),
+      timestamp:   currentMs,
+      lastUpdate:  currentMs,
+    });
+    currentMs += INTERVAL_MS;
+    count++;
+    updateProgress(count, totalEntries, Math.round(battery), 'COMMUTE');
+  }
+
+  // ── PHASE 2: Waiting at school before class ───────────────────
+  // If late arrival: skip this phase, jump straight to school hours
+  // If on time: student arrived early, waits until 7:30 AM
+  if (!isLate && currentMs < schoolStartMs) {
+    log(`Phase 2: Waiting at school before class`, 'info');
+    while (currentMs < schoolStartMs) {
+      const isGps  = Math.random() > dropout;
+      const jitter = () => (Math.random() - 0.5) * 0.0003;
+      battery = clampBattery(battery - 0.025, startBat);
+
+      window.generatedLogs.push({
+        latitude:    parseFloat((SCHOOL.lat + jitter()).toFixed(6)),
+        longitude:   parseFloat((SCHOOL.lng + jitter()).toFixed(6)),
+        altitude:    parseFloat((8 + Math.random() * 5).toFixed(1)),
+        speed:       0.0,
+        accuracy:    isGps ? 5.0 : 50.0,
+        locationType:isGps ? 'gps' : 'cached',
+        sos:         false,
+        batteryLevel:Math.round(battery),
+        timestamp:   currentMs,
+        lastUpdate:  currentMs,
+      });
+      currentMs += INTERVAL_MS;
+      count++;
+      updateProgress(count, totalEntries, Math.round(battery), 'WAIT');
+    }
+  } else if (isLate) {
+    // Late student — snap forward to a random time between 7:30–8:00 AM
+    const lateMinutes = 5 + Math.floor(Math.random() * 26); // 5–30 min late
+    currentMs = schoolStartMs + (lateMinutes * 60000);
+    log(`⚠ Late arrival: ${lateMinutes} min after 7:30 AM`, 'warn');
+  }
+
+  // ── PHASE 3: School hours ─────────────────────────────────────
+  log(`Phase 3: School hours (${schoolPings} pings until ${isEarlyDismissal ? '3:00' : '3:30'} PM)`, 'info');
+  const schoolEndMs = currentMs + (schoolPings * INTERVAL_MS);
+
+  for (let i = 0; i < schoolPings; i++) {
+    const isGps  = Math.random() > dropout;
+    const jitter = () => (Math.random() - 0.5) * 0.0003;
+    battery = clampBattery(battery - 0.035, startBat);
+
+    window.generatedLogs.push({
+      latitude:    parseFloat((SCHOOL.lat + jitter()).toFixed(6)),
+      longitude:   parseFloat((SCHOOL.lng + jitter()).toFixed(6)),
+      altitude:    parseFloat((8 + Math.random() * 6).toFixed(1)),
+      speed:       0.0,
+      accuracy:    isGps ? 5.0 : 50.0,
+      locationType:isGps ? 'gps' : 'cached',
+      sos:         false,
+      batteryLevel:Math.round(battery),
+      timestamp:   currentMs,
+      lastUpdate:  currentMs,
+    });
+    currentMs += INTERVAL_MS;
+    count++;
+    if (i % 50 === 0) updateProgress(count, totalEntries, Math.round(battery), 'SCHOOL');
+  }
+
+  // Snap to dismissal time
+  currentMs = dismissalMs;
+
+  // ── PHASE 4: After-school wait ────────────────────────────────
+  log(`Phase 4: After-school wait at school (${waitMinutes} min)`, 'info');
+  const waitEndMs = dismissalMs + (waitMinutes * 60000);
+
+  while (currentMs < waitEndMs) {
+    const isGps  = Math.random() > dropout;
+    const jitter = () => (Math.random() - 0.5) * 0.0003;
+    battery = clampBattery(battery - 0.025, startBat);
+
+    window.generatedLogs.push({
+      latitude:    parseFloat((SCHOOL.lat + jitter()).toFixed(6)),
+      longitude:   parseFloat((SCHOOL.lng + jitter()).toFixed(6)),
+      altitude:    parseFloat((8 + Math.random() * 5).toFixed(1)),
+      speed:       0.0,
+      accuracy:    isGps ? 5.0 : 50.0,
+      locationType:isGps ? 'gps' : 'cached',
+      sos:         false,
+      batteryLevel:Math.round(battery),
+      timestamp:   currentMs,
+      lastUpdate:  currentMs,
+    });
+    currentMs += INTERVAL_MS;
+    count++;
+    updateProgress(count, totalEntries, Math.round(battery), 'WAIT');
+  }
+
+  // ── PHASE 5: Afternoon commute home ──────────────────────────
+  log(`Phase 5: Afternoon return (${afternoonPath.length} pings, ${afternoonSpeed.toFixed(1)} km/h)`, 'info');
+  for (const pt of afternoonPath) {
+    const isGps = Math.random() > dropout;
+    const spd   = isGps ? parseFloat((afternoonSpeed * 0.6 + Math.random() * afternoonSpeed * 0.5).toFixed(1)) : 0;
+    battery = clampBattery(battery - 0.05, startBat);
+
+    window.generatedLogs.push({
+      latitude:    parseFloat(pt.lat.toFixed(6)),
+      longitude:   parseFloat(pt.lng.toFixed(6)),
+      altitude:    parseFloat((10 + Math.random() * 25).toFixed(1)),
+      speed:       spd,
+      accuracy:    isGps ? 5.0 : 50.0,
+      locationType:isGps ? 'gps' : 'cached',
+      sos:         false,
+      batteryLevel:Math.round(battery),
+      timestamp:   currentMs,
+      lastUpdate:  currentMs,
+    });
+    currentMs += INTERVAL_MS;
+    count++;
+    updateProgress(count, totalEntries, Math.round(battery), 'RETURN');
+  }
+
+  // ── Done ──────────────────────────────────────────────────────
+  drawGeneratedPath();
+
+  document.getElementById('recordingBadge').classList.remove('visible');
+  document.getElementById('btnGenerate').disabled = false;
+  document.getElementById('btnWrite').disabled = false;
+  document.getElementById('btnExport').disabled = false;
+
+  const arrivalHome = new Date(currentMs);
+  log(`✓ Generated ${window.generatedLogs.length} entries`, 'success');
+  log(`Estimated home arrival: ${arrivalHome.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'})}`, 'info');
+  log(`Battery: ${startBat}% → ${Math.round(battery)}%`, 'muted');
+  if (isLate) log('⚠ This student had a late arrival', 'warn');
+  if (isEarlyDismissal) log('⚠ This student had early dismissal', 'warn');
+  log('Ready to write to Firebase', 'success');
+};
+
+function drawGeneratedPath() {
+  if (routeLayer) mapInstance.removeLayer(routeLayer);
+  if (markerLayer) mapInstance.removeLayer(markerLayer);
+
+  const coords = window.generatedLogs.map(l => [l.latitude, l.longitude]);
+  const midIdx = Math.floor(coords.length / 2);
+
+  routeLayer = L.layerGroup([
+    L.polyline(coords.slice(0, midIdx), { color:'#3b82f6', weight:2, opacity:0.9 }),
+    L.polyline(coords.slice(midIdx),    { color:'#f59e0b', weight:2, opacity:0.9 }),
+    L.circleMarker(coords[0], { radius:7, color:'#3b82f6', fillColor:'#3b82f6', fillOpacity:1 }).bindPopup('Start (Home)'),
+    L.circleMarker(coords[coords.length-1], { radius:7, color:'#10b981', fillColor:'#10b981', fillOpacity:1 }).bindPopup('End (Home)'),
+  ]).addTo(mapInstance);
+
+  mapInstance.fitBounds(L.polyline(coords).getBounds(), { padding:[30,30] });
 }
 
 function updateProgress(done, total, bat, phase) {
@@ -899,7 +785,7 @@ function resetStats() {
   document.getElementById('progressBar').style.width = '0%';
 }
 
-function log(msg, type = 'muted') {
+window.log = function(msg, type = 'muted') {
   const el = document.getElementById('logConsole');
   const ts = new Date().toTimeString().substring(0,8);
   const div = document.createElement('div');
@@ -909,6 +795,130 @@ function log(msg, type = 'muted') {
   el.scrollTop = el.scrollHeight;
 }
 
+window.resetSession = () => {
+  window.generatedLogs = [];
+  window.selectedStudent = null;
+  if (routeLayer) { mapInstance.removeLayer(routeLayer); routeLayer = null; }
+  if (markerLayer) { mapInstance.removeLayer(markerLayer); markerLayer = null; }
+  document.getElementById('btnWrite').disabled = true;
+  document.getElementById('btnExport').disabled = true;
+  document.getElementById('studentSelect').value = '';
+  document.getElementById('studentInfo').classList.remove('visible');
+  resetStats();
+  log('Session reset', 'muted');
+};
+
+window.exportJSON = () => {
+  if (!window.generatedLogs.length) return;
+  const data = JSON.stringify({
+    student: window.selectedStudent.name,
+    uid:     window.selectedStudent.uid,
+    date:    window.selectedStudent.date,
+    device:  DEVICE_CODE,
+    entries: window.generatedLogs
+  }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `safetrack_${window.selectedStudent.uid.substring(0,8)}_${window.selectedStudent.date.replace(/\//g,'-')}.json`;
+  a.click();
+  log('JSON exported', 'success');
+};
+</script>
+
+<!-- Firebase write — separate module script -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, push, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey:           "AIzaSyBxE1-lPFOY8ugfYQB_CvUR7xtWWhZZRFY",
+  authDomain:       "safetrack-76a0c.firebaseapp.com",
+  databaseURL:      "https://safetrack-76a0c-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:        "safetrack-76a0c",
+  storageBucket:    "safetrack-76a0c.firebasestorage.app",
+  messagingSenderId:"662603140937",
+  appId:            "1:662603140937:android:79b904026f21f7996a1498"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+window.writeToFirebase = async () => {
+  if (!window.generatedLogs || !window.generatedLogs.length || !window.selectedStudent) {
+    window.log('No data or student selected!', 'error');
+    return;
+  }
+
+  document.getElementById('btnWrite').disabled = true;
+  document.getElementById('recordingBadge').classList.add('visible');
+
+  const uid  = window.selectedStudent.uid;
+  const path = `deviceLogs/${uid}/DEVICE1234`;
+  const logs = window.generatedLogs;
+
+  window.log('─────────────────────────────', 'muted');
+  window.log(`UID: ${uid}`, 'info');
+  window.log(`Writing ${logs.length} entries...`, 'info');
+
+  // ── Test with just ONE entry first ──
+  try {
+    await push(ref(db, path), logs[0]);
+    window.log('✓ Test entry written OK!', 'success');
+  } catch(e) {
+    window.log(`FIRST ENTRY FAILED: ${e.code} — ${e.message}`, 'error');
+    document.getElementById('recordingBadge').classList.remove('visible');
+    document.getElementById('btnWrite').disabled = false;
+    return;
+  }
+
+  // ── Write remaining entries ──
+  let written = 1, errors = 0;
+  for (let i = 1; i < logs.length; i++) {
+    try {
+      await push(ref(db, path), logs[i]);
+      written++;
+      if (written % 25 === 0) window.log(`Written ${written}/${logs.length}...`, 'muted');
+    } catch(e) {
+      errors++;
+      window.log(`ERROR at entry ${i}: ${e.code} — ${e.message}`, 'error');
+      break;
+    }
+  }
+
+  // ── Write linkedDevices ──
+  const last = logs[logs.length - 1];
+  try {
+    await set(ref(db, `linkedDevices/${uid}/devices/DEVICE1234`), {
+      childName:     window.selectedStudent.name,
+      deviceEnabled: true,
+      deviceCode:    'DEVICE1234',
+      deviceStatus: {
+        batteryLevel: last.batteryLevel,
+        sos:          false,
+        lastUpdate:   last.lastUpdate,
+        lastLocation: {
+          latitude:  last.latitude,
+          longitude: last.longitude,
+          altitude:  last.altitude,
+        },
+      },
+    });
+    window.log('✓ linkedDevices written', 'success');
+  } catch(e) {
+    window.log(`linkedDevices FAILED: ${e.code} — ${e.message}`, 'error');
+  }
+
+  document.getElementById('recordingBadge').classList.remove('visible');
+  document.getElementById('btnWrite').disabled = false;
+
+  if (errors === 0) {
+    window.log(`✓ ALL ${written} entries written!`, 'success');
+    window.log(`Path: deviceLogs/${uid.substring(0,8)}..../DEVICE1234`, 'muted');
+  } else {
+    window.log(`${written} written, ${errors} errors`, 'warn');
+  }
+};
 </script>
 </body>
 </html>
