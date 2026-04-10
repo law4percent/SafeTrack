@@ -17,8 +17,17 @@
 #   - fewer than 2 waypoints    → skip route (no segment to check)
 #   - route isActive == false   → skip route
 #
-# Rule: This module raises exceptions to caller (main.py).
-#       It does NOT import logger directly.
+# Rule: This module does NOT import logger directly.
+#       Logger is injected by main.py via constructor (Option A).
+#
+# FIX 1: _on_log_event() and _on_devices_changed() now catch and LOG
+#         exceptions instead of re-raising. Re-raising inside a Firebase
+#         listener thread causes the SDK to swallow the exception silently —
+#         the listener dies with no log entry and no recovery.
+#
+# FIX 2: _handle_deviation() separates alertLogs write from FCM push.
+#         A failed FCM push no longer prevents the alert from being
+#         recorded. Each step is logged individually.
 #
 # RTDB paths read:
 #   linkedDevices/{uid}/devices/{code}
@@ -34,6 +43,7 @@
 import time
 import threading
 from datetime import datetime
+from typing import Callable
 
 import firebase_admin.db as rtdb
 
@@ -54,7 +64,7 @@ from utils.fcm_sender import send_alert
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _is_sos(val) -> bool:
-    """Handle sos field as bool or string (firmware writes bool, app init writes string)."""
+    """Handle sos field as bool or string."""
     return val is True or str(val).lower() == 'true'
 
 
@@ -71,7 +81,6 @@ def _parse_hhmm(hhmm: str):
     """
     Parse 'HH:MM' string into (hour, minute) tuple.
     Returns None if invalid.
-    Port of BehaviorMonitorService._parseHHMM()
     """
     if not hhmm:
         return None
@@ -103,69 +112,44 @@ def _is_within_school_hours(time_in_hm: tuple, time_out_hm: tuple) -> bool:
 def _get_fcm_token(uid: str) -> str:
     """
     Fetch FCM token from users/{uid}/fcmToken.
-    Raises RuntimeError if missing so main.py can log it visibly.
-    Token is saved by the app on login via authStateChanges() listener.
+    Returns empty string if missing — caller logs and skips.
     """
     snap = rtdb.reference(f"{PATH_USERS}/{uid}/fcmToken").get()
     if snap and isinstance(snap, str) and snap.strip():
         return snap.strip()
-    raise RuntimeError(
-        f"[DeviationMonitor] FCM token missing for uid={uid} — "
-        f"push not sent. Parent must open app once to register token."
-    )
+    return ""
 
 
 def _is_cooldown_active(uid: str, device_code: str, route_id: str) -> bool:
     """
     Check RTDB-backed cooldown for deviation alert.
-    Path: serverCooldowns/{uid}/{device_code}/{route_id}/lastDeviationAlert
     Returns True if cooldown is still active (should skip).
     """
-    path = f"{PATH_SERVER_COOLDOWNS}/{uid}/{device_code}/{route_id}/lastDeviationAlert"
+    path = (
+        f"{PATH_SERVER_COOLDOWNS}/{uid}/{device_code}"
+        f"/{route_id}/lastDeviationAlert"
+    )
     last_alert_ms = rtdb.reference(path).get()
-
     if not last_alert_ms:
         return False
-
-    elapsed_ms = _now_ms() - int(last_alert_ms)
+    elapsed_ms  = _now_ms() - int(last_alert_ms)
     cooldown_ms = DEVIATION_COOLDOWN_MINUTES * 60 * 1000
     return elapsed_ms < cooldown_ms
 
 
 def _set_cooldown(uid: str, device_code: str, route_id: str):
     """Write current timestamp to RTDB cooldown path."""
-    path = f"{PATH_SERVER_COOLDOWNS}/{uid}/{device_code}/{route_id}/lastDeviationAlert"
+    path = (
+        f"{PATH_SERVER_COOLDOWNS}/{uid}/{device_code}"
+        f"/{route_id}/lastDeviationAlert"
+    )
     rtdb.reference(path).set(_now_ms())
-
-
-def _save_alert_to_rtdb(
-    uid        : str,
-    device_code: str,
-    child_name : str,
-    message    : str,
-    distance_m : float,
-    route_name : str,
-):
-    """
-    Write deviation alert to alertLogs/{uid}/{device_code}/{pushId}.
-    Port of PathMonitorService._saveAlertToRTDB()
-    """
-    ref = rtdb.reference(f"{PATH_ALERT_LOGS}/{uid}/{device_code}")
-    ref.push({
-        "type"          : "deviation",
-        "childName"     : child_name,
-        "message"       : message,
-        "timestamp"     : {".sv": "timestamp"},
-        "distanceMeters": round(distance_m, 1),
-        "routeName"     : route_name,
-    })
 
 
 def _load_active_routes(uid: str, device_code: str) -> list:
     """
     Load active routes from devicePaths/{uid}/{device_code}.
     Returns list of dicts: {route_id, path_name, threshold_meters, waypoints}
-    Port of PathMonitorService._parseRoutesSnapshot()
     """
     snap = rtdb.reference(f"{PATH_DEVICE_PATHS}/{uid}/{device_code}").get()
     if not snap or not isinstance(snap, dict):
@@ -212,12 +196,13 @@ class _DeviceListener:
     """
 
     def __init__(self, uid: str, device_code: str, child_name: str,
-                 time_in_hm: tuple, time_out_hm: tuple):
-        self.uid          = uid
-        self.device_code  = device_code
-        self.child_name   = child_name
-        self.time_in_hm   = time_in_hm
-        self.time_out_hm  = time_out_hm
+                 time_in_hm: tuple, time_out_hm: tuple, log: Callable):
+        self.uid           = uid
+        self.device_code   = device_code
+        self.child_name    = child_name
+        self.time_in_hm    = time_in_hm
+        self.time_out_hm   = time_out_hm
+        self._log          = log
         self._last_log_key = None
         self._listener     = None
 
@@ -225,24 +210,41 @@ class _DeviceListener:
         """Attach RTDB listener to deviceLogs."""
         path = f"{PATH_DEVICE_LOGS}/{self.uid}/{self.device_code}"
         self._listener = rtdb.reference(path).listen(self._on_log_event)
+        self._log(
+            details      = (
+                f"Deviation listener attached — "
+                f"device={self.device_code} uid={self.uid}"
+            ),
+            log_type     = "info",
+            show_console = True,
+        )
 
     def stop(self):
         """Detach RTDB listener."""
         if self._listener:
             self._listener.close()
             self._listener = None
+            self._log(
+                details      = (
+                    f"Deviation listener stopped — "
+                    f"device={self.device_code}"
+                ),
+                log_type     = "info",
+                show_console = True,
+            )
 
     def _on_log_event(self, event):
         """
         Called by Firebase Admin SDK on any change to the log node.
         Filters to only process new child additions.
-        Port of PathMonitorService._subscribeToLogs()
+
+        FIX 1: Exceptions are caught and logged here instead of
+        re-raised. Re-raising inside a Firebase listener thread causes
+        the SDK to swallow the exception silently — the listener dies
+        with no log entry and no recovery.
         """
         try:
-            # event.data is the full node snapshot on first load,
-            # then individual child updates. We handle both.
             data = event.data
-
             if not isinstance(data, dict):
                 return
 
@@ -267,20 +269,20 @@ class _DeviceListener:
             self._process_log(latest_log)
 
         except Exception as e:
-            # Raise so main.py can log it
-            raise RuntimeError(
-                f"[DeviationMonitor] Log event error "
-                f"{self.device_code}: {e}"
-            ) from e
+            # FIX 1: Log instead of re-raise
+            self._log(
+                details      = (
+                    f"Log event error — "
+                    f"device={self.device_code}: {e}"
+                ),
+                log_type     = "error",
+                show_console = True,
+            )
 
     def _process_log(self, log: dict):
-        """
-        Apply all guards then run Haversine check.
-        Port of PathMonitorService._subscribeToLogs() guard chain.
-        """
-        # Guard 1: GPS only — skip cached logs
-        location_type = str(log.get('locationType', 'cached'))
-        if location_type != 'gps':
+        """Apply all guards then run Haversine check."""
+        # Guard 1: GPS only
+        if str(log.get('locationType', 'cached')) != 'gps':
             return
 
         # Guard 2: Skip during SOS
@@ -304,29 +306,28 @@ class _DeviceListener:
         if lat == 0.0 and lng == 0.0:
             return
 
-        # Load active routes (fresh fetch on each log event)
         routes = _load_active_routes(self.uid, self.device_code)
         if not routes:
             return
 
-        position = (lat, lng)
-        self._check_deviation(position, routes)
+        self._check_deviation((lat, lng), routes)
 
     def _check_deviation(self, position: tuple, routes: list):
-        """
-        Run Haversine check against all active routes.
-        Port of PathMonitorService._checkDeviation()
-        """
+        """Run Haversine check against all active routes."""
         for route in routes:
             distance = distance_to_path(position, route["waypoints"])
-
             if distance > route["threshold_meters"]:
                 self._handle_deviation(distance, route)
 
     def _handle_deviation(self, distance_m: float, route: dict):
         """
         Fire deviation alert if cooldown allows.
-        Port of PathMonitorService._handleDeviation()
+
+        FIX 2: alertLogs write and FCM push are fully separated.
+          - alertLogs is always written first.
+          - FCM failure is caught and logged independently.
+          - A failed FCM push does NOT prevent the alertLogs entry
+            from being written.
         """
         route_id   = route["route_id"]
         route_name = route["path_name"]
@@ -344,19 +345,62 @@ class _DeviceListener:
             f"route \"{route_name}\". Please check their location immediately."
         )
 
-        # Write to alertLogs
-        _save_alert_to_rtdb(
-            uid         = self.uid,
-            device_code = self.device_code,
-            child_name  = self.child_name,
-            message     = message,
-            distance_m  = distance_m,
-            route_name  = route_name,
+        self._log(
+            details      = (
+                f"Deviation: {self.child_name} {dist_str}m "
+                f"from \"{route_name}\" — device={self.device_code}"
+            ),
+            log_type     = "info",
+            show_console = True,
         )
 
-        # Send FCM push
+        # ── Step 1: Write to alertLogs (always) ──────────────────
+        try:
+            rtdb.reference(
+                f"{PATH_ALERT_LOGS}/{self.uid}/{self.device_code}"
+            ).push({
+                "type"          : "deviation",
+                "childName"     : self.child_name,
+                "message"       : message,
+                "timestamp"     : {".sv": "timestamp"},
+                "distanceMeters": round(distance_m, 1),
+                "routeName"     : route_name,
+            })
+            self._log(
+                details      = (
+                    f"alertLogs written — "
+                    f"device={self.device_code} uid={self.uid}"
+                ),
+                log_type     = "info",
+                show_console = True,
+            )
+        except Exception as e:
+            self._log(
+                details      = (
+                    f"alertLogs write FAILED — "
+                    f"device={self.device_code} uid={self.uid}: {e}"
+                ),
+                log_type     = "error",
+                show_console = True,
+            )
+            # Still attempt FCM so the parent at least gets a push
+
+        # ── Step 2: Send FCM push (best-effort) ──────────────────
         try:
             fcm_token = _get_fcm_token(self.uid)
+
+            if not fcm_token:
+                self._log(
+                    details      = (
+                        f"FCM token missing — push not sent. "
+                        f"uid={self.uid} device={self.device_code}. "
+                        f"Parent must open app once to register token."
+                    ),
+                    log_type     = "warning",
+                    show_console = True,
+                )
+                return
+
             send_alert(
                 fcm_token   = fcm_token,
                 alert_type  = "deviation",
@@ -364,8 +408,24 @@ class _DeviceListener:
                 device_code = self.device_code,
                 message     = message,
             )
-        except RuntimeError:
-            raise
+            self._log(
+                details      = (
+                    f"FCM push sent — "
+                    f"device={self.device_code} uid={self.uid}"
+                ),
+                log_type     = "info",
+                show_console = True,
+            )
+        except Exception as e:
+            self._log(
+                details      = (
+                    f"FCM push FAILED — "
+                    f"device={self.device_code} uid={self.uid}: {e}. "
+                    f"alertLogs entry was still written."
+                ),
+                log_type     = "error",
+                show_console = True,
+            )
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -376,29 +436,32 @@ class DeviationMonitor:
     Called once from main.py on server start.
 
     Usage:
-        monitor = DeviationMonitor()
-        monitor.start()   # blocking — runs until KeyboardInterrupt
+        monitor = DeviationMonitor(logger=log)
+        monitor.start()
     """
 
-    def __init__(self):
+    def __init__(self, logger: Callable):
         self._listeners: dict[str, _DeviceListener] = {}
         self._lock = threading.Lock()
+        self._log  = logger
 
     def start(self):
         """
         Fetch all linked devices and start per-device listeners.
         Then watch for device list changes to add/remove listeners dynamically.
         """
-        # Initial load of all users and their devices
         self._load_all_devices()
-
-        # Watch linkedDevices for changes (new devices linked, devices removed)
         rtdb.reference(PATH_LINKED_DEVICES).listen(self._on_devices_changed)
 
     def _load_all_devices(self):
         """Fetch all users and start listeners for their enabled devices."""
         snap = rtdb.reference(PATH_LINKED_DEVICES).get()
         if not snap or not isinstance(snap, dict):
+            self._log(
+                details      = "No linked devices found on startup",
+                log_type     = "warning",
+                show_console = True,
+            )
             return
 
         for uid, user_data in snap.items():
@@ -410,11 +473,14 @@ class DeviationMonitor:
             for device_code, device_data in devices.items():
                 if not isinstance(device_data, dict):
                     continue
-                self._maybe_start_listener(str(uid), str(device_code), device_data)
+                self._maybe_start_listener(
+                    str(uid), str(device_code), device_data
+                )
 
-    def _maybe_start_listener(self, uid: str, device_code: str, device_data: dict):
+    def _maybe_start_listener(
+        self, uid: str, device_code: str, device_data: dict
+    ):
         """Start a listener for a device if it's enabled and has a schedule."""
-        # Guard: deviceEnabled
         if not _is_enabled(device_data.get('deviceEnabled', 'false')):
             return
 
@@ -425,21 +491,21 @@ class DeviationMonitor:
         time_in_hm  = _parse_hhmm(time_in_str)
         time_out_hm = _parse_hhmm(time_out_str)
 
-        # Skip if no schedule set
         if not time_in_hm or not time_out_hm:
             return
 
         key = f"{uid}:{device_code}"
         with self._lock:
             if key in self._listeners:
-                return  # already listening
+                return
 
             listener = _DeviceListener(
-                uid          = uid,
-                device_code  = device_code,
-                child_name   = child_name,
-                time_in_hm   = time_in_hm,
-                time_out_hm  = time_out_hm,
+                uid         = uid,
+                device_code = device_code,
+                child_name  = child_name,
+                time_in_hm  = time_in_hm,
+                time_out_hm = time_out_hm,
+                log         = self._log,
             )
             listener.start()
             self._listeners[key] = listener
@@ -457,6 +523,8 @@ class DeviationMonitor:
         Handle changes to linkedDevices tree.
         Starts listeners for new enabled devices,
         stops listeners for disabled or removed devices.
+
+        FIX 1: Exceptions are caught and logged instead of re-raised.
         """
         try:
             data = event.data
@@ -485,11 +553,13 @@ class DeviationMonitor:
                                 str(uid), str(device_code), device_data
                             )
                     else:
-                        # Device disabled — stop listener
                         if key in self._listeners:
                             self._stop_listener(str(uid), str(device_code))
 
         except Exception as e:
-            raise RuntimeError(
-                f"[DeviationMonitor] Devices change event error: {e}"
-            ) from e
+            # FIX 1: Log instead of re-raise
+            self._log(
+                details      = f"Devices change event error: {e}",
+                log_type     = "error",
+                show_console = True,
+            )
