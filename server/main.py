@@ -6,6 +6,7 @@
 # Responsibilities:
 #   - Initializes Firebase Admin SDK
 #   - Starts DeviationMonitor (real-time RTDB listener)
+#   - Starts SosMonitor (real-time RTDB listener)
 #   - Runs BehaviorMonitor + SilenceMonitor cron every 5 minutes
 #   - Catches and logs all errors from monitors
 #   - Runs until KeyboardInterrupt (Ctrl+C)
@@ -15,6 +16,11 @@
 #   App is the displayer only.
 #
 #   ESP32 → Firebase RTDB → Server → FCM → Parent's phone → App
+#
+# Logger injection:
+#   SosMonitor and DeviationMonitor do not import logger directly.
+#   main.py passes its own logger into both monitor constructors
+#   so all log output is owned and controlled here.
 
 import time
 import threading
@@ -135,13 +141,16 @@ def run_cron():
     )
 
 
-# ── Deviation monitor runner ──────────────────────────────────────────────────
+# ── SOS monitor runner ────────────────────────────────────────────────────────
 
 def run_sos_monitor():
     """
     Starts the real-time SOS monitor.
     Runs in a background thread.
     SosMonitor attaches RTDB listeners — stays alive indefinitely.
+
+    Logger is passed into SosMonitor so the service does not
+    import logger directly — all log output is owned by main.py.
     """
     try:
         log(
@@ -149,7 +158,7 @@ def run_sos_monitor():
             log_type     = "info",
             show_console = True,
         )
-        monitor = SosMonitor()
+        monitor = SosMonitor(logger=log)
         monitor.start()
         log(
             details      = "SOS monitor running",
@@ -169,11 +178,16 @@ def run_sos_monitor():
         )
 
 
+# ── Deviation monitor runner ──────────────────────────────────────────────────
+
 def run_deviation_monitor():
     """
     Starts the real-time deviation monitor.
     Runs in a background thread.
     DeviationMonitor attaches RTDB listeners — stays alive indefinitely.
+
+    Logger is passed into DeviationMonitor so the service does not
+    import logger directly — all log output is owned by main.py.
     """
     try:
         log(
@@ -181,7 +195,7 @@ def run_deviation_monitor():
             log_type     = "info",
             show_console = True,
         )
-        monitor = DeviationMonitor()
+        monitor = DeviationMonitor(logger=log)
         monitor.start()
         log(
             details      = "Deviation monitor running",
