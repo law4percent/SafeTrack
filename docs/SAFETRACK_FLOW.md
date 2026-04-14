@@ -70,10 +70,10 @@ flowchart TD
     D --> T2[Thread: DeviationMonitor<br/>attaches RTDB listener<br/>runs continuously]
     D --> T3[Thread: CronRunner<br/>runs every 5 minutes]
 
-    subgraph DeviationMonitor — real-time RTDB listener
+    subgraph DV["DeviationMonitor - real-time RTDB listener"]
         DM1{New GPS ping<br/>received}
         DM1 --> DM2{Live GPS fix?<br/>not cached}
-        DM2 -- No --> DM3([Skip — unreliable])
+        DM2 -- No --> DM3([Skip - unreliable])
         DM2 -- Yes --> DM4{Device<br/>enabled?}
         DM4 -- No --> DM3
         DM4 -- Yes --> DM5{SOS active?}
@@ -84,19 +84,19 @@ flowchart TD
         DM7 -- No --> DM3
         DM7 -- Yes --> DM8[Calc distance to<br/>nearest route point]
         DM8 --> DM9{Beyond<br/>threshold?}
-        DM9 -- No --> DM10([On route — OK])
+        DM9 -- No --> DM10([On route - OK])
         DM9 -- Yes --> DM11{Cooldown<br/>active? < 5 min}
-        DM11 -- Yes --> DM12([Skip — duplicate])
+        DM11 -- Yes --> DM12([Skip - duplicate])
         DM11 -- No --> DM13[Write Deviation alert] --> DM14[Push notification<br/>to parent]
     end
 
-    subgraph SosMonitor — real-time RTDB listener
+    subgraph SS["SosMonitor - real-time RTDB listener"]
         SM1{SOS flag set<br/>on device}
         SM1 --> SM2[Write SOS alert<br/>immediately]
         SM2 --> SM3[Push notification<br/>no cooldown · any hour]
     end
 
-    subgraph CronRunner — every 5 min
+    subgraph CR["CronRunner - every 5 min"]
         CR1[Run behavior checks] --> CR2[Run silence checks]
         CR1 --> CR3{Late?<br/>> 15 min grace} -- Yes --> CR4[Late Arrival alert]
         CR1 --> CR5{Absent?<br/>no GPS all day} -- Yes --> CR6[Absent alert]
