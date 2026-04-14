@@ -637,11 +637,15 @@ class _ChildCardState extends State<ChildCard> {
         .child(user.uid)
         .child(widget.deviceCode)
         .limitToLast(1)
-        .onChildAdded // fires once per new entry, not on every collection change
+        .onValue
         .listen((event) {
       if (!mounted) return;
-      final logData = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (logData == null) return;
+      if (!event.snapshot.exists) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      final logsMap = event.snapshot.value as Map<dynamic, dynamic>;
+      final logData = logsMap.values.first as Map<dynamic, dynamic>;
       setState(() {
         _latestLog = _logEntryToLatestLog(logData);
         _isLoading = false;
