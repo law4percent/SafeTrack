@@ -270,6 +270,7 @@ class _DashboardContentState extends State<DashboardContent> {
         .ref('deviceLogs')
         .child(user.uid)
         .child(deviceCode)
+        .orderByChild('lastUpdate')
         .limitToLast(1)
         .onValue
         .listen((event) {
@@ -636,6 +637,7 @@ class _ChildCardState extends State<ChildCard> {
         .ref('deviceLogs')
         .child(user.uid)
         .child(widget.deviceCode)
+        .orderByChild('lastUpdate')
         .limitToLast(1)
         .onValue
         .listen((event) {
