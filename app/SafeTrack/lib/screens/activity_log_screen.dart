@@ -198,6 +198,39 @@ class _ActivityLogScreenState extends State<ActivityLogScreen>
 
   Future<void> _refreshData() async => _loadActivities();
 
+  Future<void> _deleteLog(Map<String, dynamic> activity) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Log?'),
+        content: const Text('Remove this location entry from the log?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final user = _auth.currentUser;
+    if (user == null) return;
+    await _databaseRef
+        .child('deviceLogs')
+        .child(user.uid)
+        .child(activity['deviceCode'] as String)
+        .child(activity['logId'] as String)
+        .remove();
+    if (!mounted) return;
+    setState(() => _activities.removeWhere(
+      (a) => a['logId'] == activity['logId'],
+    ));
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // EXCEL EXPORT  (unchanged)
   // ─────────────────────────────────────────────────────────────────────────
@@ -679,6 +712,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen>
         ),
         trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
         onTap: () => _showActivityDetails(activity),
+        onLongPress: () => _deleteLog(activity),
       ),
     );
   }
